@@ -1,0 +1,25 @@
+{
+	"name": "VideTopbarDev",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"Packages": {
+				"$path": "Packages",
+				"VideTopbar": {
+					"$path": "src"
+				}
+			},
+			"DevPackages": {
+				"$path": "DevPackages"
+			},
+			"Stories": {
+				"$path": "stories"
+			}
+		},
+		"StarterPlayer": {
+			"StarterPlayerScripts": {
+				"$path": "dev"
+			}
+		}
+	}
+}
