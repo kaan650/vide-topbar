@@ -12,7 +12,7 @@ include = ["src", "src/**", "default.project.json", "wally.toml", "README.md", "
 
 [dependencies]
 Vide = "centau/vide@0.4.1"
-VideFoundation = "kaan650/vide-foundation@0.2.0"
+VideFoundation = "kaan650/vide-foundation@0.2.1"
 VideRipple = "littensy/vide-ripple@0.10.2"
 
 [dev-dependencies]
