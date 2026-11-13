@@ -1,9 +1,10 @@
-local TextService = game:GetService("TextService")
-
+local KeyCap = require("./KeyCap")
 local Vide = require("./Packages/Vide")
 local VideFoundation = require("./Packages/VideFoundation")
 local VideRipple = require("./Packages/VideRipple")
 local create = require("./Utility/create")
+local measureText = require("./Utility/measureText")
+local trackAbsolute = require("./Utility/trackAbsolute")
 
 --* Roblox's topbar tooltips are UIBlox's TooltipV2 (UIBlox/App/Dialog/TooltipV2 in the Studio install's
 --* LuaPackages); the values below are its Constants.lua, opening downwards under a Unibar icon.
@@ -18,8 +19,7 @@ local SHADOW_SLICE = Rect.new(12, 12, 13, 13)
 local SCREEN_MARGIN = 12
 local MAX_WIDTH = 240
 local MAX_HEADER_LINES = 2
---* UIBlox's GetTextSize pads every measurement by this.
-local TEXT_SIZE_PADDING = Vector2.new(2, 2)
+local HOTKEY_PADDING = 6
 local HIDDEN_DISTANCE = -4
 local SPRING: VideRipple.SpringOptions<number> = { dampingRatio = 1, frequency = 1 / 0.2 }
 
@@ -40,54 +40,14 @@ local function isGroupActive(): boolean
 	return openCount > 0 or os.clock() - lastClosedAt < GROUP_WINDOW
 end
 
-local legacyFonts: { [string]: Enum.Font } = {}
-for _, legacyFont in Enum.Font:GetEnumItems() do
-	local ok, font = pcall(Font.fromEnum, legacyFont)
-	if ok then
-		legacyFonts[`{font.Family}|{font.Weight.Name}|{font.Style.Name}`] = legacyFont
-	end
-end
-
---- The Enum.Font that draws `font`, so TextService:GetTextSize can measure it without yielding, as UIBlox's
---- GetLegacyFont does. Builder Sans weights without their own enum fall back to the nearest one.
-local function legacyFont(font: Font): Enum.Font
-	local exact = legacyFonts[`{font.Family}|{font.Weight.Name}|{font.Style.Name}`]
-	if exact then
-		return exact
-	end
-	local weight = font.Weight.Value
-	return if weight >= Enum.FontWeight.ExtraBold.Value
-		then Enum.Font.BuilderSansExtraBold
-		elseif weight >= Enum.FontWeight.SemiBold.Value then Enum.Font.BuilderSansBold
-		elseif weight >= Enum.FontWeight.Medium.Value then Enum.Font.BuilderSansMedium
-		else Enum.Font.BuilderSans
-end
-
---! AbsolutePosition changes without its changed signal when an ancestor is parented (the tooltip layer read (0, 0)
---! while it sat at (0, -58)), so these subscribe to the signals but always return the live value.
-local function trackAbsolute(instance: GuiObject): (() -> Vector2, () -> Vector2)
-	local version = Vide.source(0)
-	local function bump()
-		version(version() + 1)
-	end
-	Vide.cleanup(instance:GetPropertyChangedSignal("AbsolutePosition"):Connect(bump))
-	Vide.cleanup(instance:GetPropertyChangedSignal("AbsoluteSize"):Connect(bump))
-
-	return function()
-		version()
-		return instance.AbsolutePosition
-	end, function()
-		version()
-		return instance.AbsoluteSize
-	end
-end
-
 export type TooltipProps = {
 	anchor: GuiObject,
 	layer: GuiObject,
 	--- Half the height of what the tooltip points at: Unibar points at its 36 px hit circle, not the 44 px cell.
 	triggerRadius: () -> number,
 	title: () -> string?,
+	--- Drawn as keycaps under the title, as Roblox does for an icon's hotkeys.
+	hotkeys: () -> { Enum.KeyCode },
 	isOpen: () -> boolean,
 }
 
@@ -157,6 +117,26 @@ local function Tooltip(props: TooltipProps)
 			return math.floor((1 - visibility()) * HIDDEN_DISTANCE + 0.5)
 		end
 
+		local function maxContentWidth(): number
+			return MAX_WIDTH - tokens().Padding.Medium * 2
+		end
+
+		--- The header's size as TooltipCallout measures it: wrapped at the content width, at most two lines.
+		local function headerSize(): Vector2
+			local caption = tokens().Typography.CaptionMedium
+			local maxSize = Vector2.new(maxContentWidth(), caption.FontSize * MAX_HEADER_LINES)
+			local measured = measureText(title(), caption, maxSize.X)
+			return Vector2.new(math.min(measured.X, maxSize.X), math.min(measured.Y, maxSize.Y))
+		end
+
+		local function hotkeys(): { Enum.KeyCode }
+			return props.hotkeys()
+		end
+
+		local function hasHotkeys(): boolean?
+			return if #hotkeys() > 0 then true else nil
+		end
+
 		local boxTop = CONTENT_TO_CARET_TIP
 
 		local group = VideFoundation.View({
@@ -211,6 +191,7 @@ local function Tooltip(props: TooltipProps)
 						create("TextLabel")({
 							Name = "Header",
 							BackgroundTransparency = 1,
+							LayoutOrder = 1,
 							Text = function()
 								return title()
 							end,
@@ -233,22 +214,45 @@ local function Tooltip(props: TooltipProps)
 							TextTruncate = Enum.TextTruncate.AtEnd,
 							RichText = true,
 							Size = function()
-								local caption = tokens().Typography.CaptionMedium
-								local maxSize = Vector2.new(
-									MAX_WIDTH - tokens().Padding.Medium * 2,
-									caption.FontSize * MAX_HEADER_LINES
-								)
-								local measured = TextService:GetTextSize(
-									title(),
-									caption.FontSize,
-									legacyFont(caption.Font),
-									Vector2.new(maxSize.X, math.huge)
-								)
-								local size = Vector2.new(measured.X, math.min(measured.Y, maxSize.Y))
-									+ TEXT_SIZE_PADDING
-								return UDim2.fromOffset(math.min(size.X, maxSize.X), math.min(size.Y, maxSize.Y))
+								local size = headerSize()
+								return UDim2.fromOffset(size.X, size.Y)
 							end,
 						}),
+						--* TooltipCallout's getHotkeysAndWidth: keycaps centered under the header, as wide as the
+						--* wider of the two.
+						Vide.show(hasHotkeys, function()
+							local function keysWidth(): number
+								local body = tokens().Typography.BodySmall
+								local keys = hotkeys()
+								local total = HOTKEY_PADDING * (#keys - 1)
+								for _, keyCode in keys do
+									total += KeyCap.width(keyCode, body)
+								end
+								return total
+							end
+
+							return VideFoundation.View({
+								LayoutOrder = 3,
+								Size = function()
+									local width = math.max(keysWidth(), headerSize().X)
+									return UDim2.fromOffset(width, KeyCap.HEIGHT)
+								end,
+								children = {
+									create("UIListLayout")({
+										FillDirection = Enum.FillDirection.Horizontal,
+										HorizontalAlignment = Enum.HorizontalAlignment.Center,
+										SortOrder = Enum.SortOrder.LayoutOrder,
+										Padding = UDim.new(0, HOTKEY_PADDING),
+									}),
+									Vide.indexes(
+										hotkeys,
+										function(keyCode: () -> Enum.KeyCode, index: number): GuiObject
+											return KeyCap.KeyCap(keyCode(), index)
+										end
+									),
+								},
+							})
+						end),
 					},
 				}),
 			},

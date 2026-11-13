@@ -1,16 +1,24 @@
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 
+local GroupView = require("./GroupView")
 local IconView = require("./IconView")
 local Vide = require("./Packages/Vide")
 local VideFoundation = require("./Packages/VideFoundation")
 local create = require("./Utility/create")
+local gamepad = require("./gamepad")
 local layers = require("./layers")
+local overflow = require("./overflow")
 local registry = require("./registry")
+local shortcuts = require("./shortcuts")
+local trackAbsolute = require("./Utility/trackAbsolute")
 local types = require("./types")
+local useBackplate = require("./Utility/useBackplate")
+local useHealthBarWidth = require("./healthBar")
 
 type Value<T> = VideFoundation.Value<T>
-type IconProps = types.IconProps
+type Entry = registry.Entry
 type Side = types.Side
 
 export type MountOptions = {
@@ -19,22 +27,47 @@ export type MountOptions = {
 	displayOrder: number?,
 	enabled: Value<boolean>?,
 	colorMode: Value<VideFoundation.ColorMode>?,
+	--- The gamepad button that moves the selection onto the topbar, DPadUp by default as in TopbarPlus. `false` leaves
+	--- the topbar to the gamepad's virtual cursor.
+	gamepadHighlightKey: (Enum.KeyCode | false)?,
 }
 
 local DEFAULT_DISPLAY_ORDER = 10
+--* Roblox's ⋯ button: its "three-bars-horizontal" glyph and its "More" tooltip (CoreScripts.TopBar.MoreMenu).
+local OVERFLOW_ICON = "three-bars-horizontal"
+local OVERFLOW_TOOLTIP = "More"
+local OVERFLOW_ORDER = 2 ^ 30
+local DEFAULT_HIGHLIGHT_KEY = Enum.KeyCode.DPadUp
+local RESTING_WIDTH_ATTRIBUTE = overflow.RESTING_WIDTH_ATTRIBUTE
 
-local function iconsOn(side: Side): () -> { [number]: IconProps }
+local function sideOf(value: Value<Side>?): Side
+	local side = if type(value) == "function" then value() else value
+	return side or "Left"
+end
+
+local function entriesOn(side: Side): () -> { [number]: Entry }
 	return Vide.derive(function()
 		local onSide = {}
-		for id, props in registry.icons() do
-			local value = props.side
-			local iconSide = if type(value) == "function" then value() else value
-			if (iconSide or "Left") == side then
-				onSide[id] = props
+		for id, entry in registry.topbar.entries() do
+			local entrySide = if entry.kind == "Icon"
+				then sideOf(entry.props.side)
+				elseif entry.kind == "Group" then sideOf(entry.props.side)
+				else nil
+			if entrySide == side then
+				onSide[id] = entry
 			end
 		end
 		return onSide
 	end)
+end
+
+local function EntryView(entry: Entry, side: () -> Side, overflowAnchor: () -> GuiObject?): GuiObject?
+	if entry.kind == "Icon" then
+		return IconView(entry, "Standalone", side, overflowAnchor)
+	elseif entry.kind == "Group" then
+		return GroupView(entry, side, overflowAnchor)
+	end
+	return nil
 end
 
 local function liveTopbarInset(): () -> Rect
@@ -72,7 +105,74 @@ end
 
 --- The three holders. Without an inset (a story) the free area is the whole target.
 --? TopbarInset may not account for a phone's notch; check in the device emulator.
-local function Holders(inset: (() -> Rect)?): { GuiObject }
+--- TopbarPlus's indicator: the highlight key's button under the icon it would select, shown to a gamepad player until
+--- they have used it, so they know how to reach the topbar. Drawn like an icon: the glyph on the topbar's backplate.
+local function GamepadHint(
+	layer: GuiObject,
+	key: Enum.KeyCode,
+	used: () -> boolean,
+	iconToSelect: () -> GuiObject?,
+	getRoot: () -> Instance?
+)
+	local tokens = VideFoundation.Hooks.useTokens()
+	local backplate = useBackplate()
+	local layerPosition = trackAbsolute(layer)
+
+	local preferredInput = Vide.source(UserInputService.PreferredInput)
+	Vide.cleanup(UserInputService:GetPropertyChangedSignal("PreferredInput"):Connect(function()
+		preferredInput(UserInputService.PreferredInput)
+	end))
+	local selected = Vide.source(GuiService.SelectedObject)
+	local getSelected: () -> GuiObject? = selected
+	Vide.cleanup(GuiService:GetPropertyChangedSignal("SelectedObject"):Connect(function()
+		selected(GuiService.SelectedObject)
+	end))
+
+	local function target(): GuiObject?
+		local root = getRoot()
+		if used() or preferredInput() ~= Enum.PreferredInput.Gamepad or root == nil then
+			return nil
+		end
+		if gamepad.isInside(getSelected(), root) then
+			return nil
+		end
+		return iconToSelect()
+	end
+
+	Vide.show(target, function(icon: () -> GuiObject)
+		local iconPosition, iconSize = trackAbsolute(Vide.untrack(icon))
+		local hint = VideFoundation.View({
+			tag = "radius-circle",
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = function()
+				local position = iconPosition() - layerPosition()
+				return UDim2.fromOffset(position.X + iconSize().X / 2, position.Y + iconSize().Y + tokens().Gap.Small)
+			end,
+			Size = function()
+				local size = tokens().Size.Size_900
+				return UDim2.fromOffset(size, size)
+			end,
+			backgroundStyle = backplate,
+			children = {
+				VideFoundation.Image({
+					ImageContent = Content.fromUri(UserInputService:GetImageForKeyCode(key)),
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(0.5, 0.5),
+					Size = function()
+						local size = tokens().Size.Size_600
+						return UDim2.fromOffset(size, size)
+					end,
+				}),
+			},
+		})
+		hint.Name = "VideTopbarGamepadHint"
+		hint.Parent = layer
+		Vide.cleanup(hint)
+		return hint
+	end)
+end
+
+local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlightKey: Enum.KeyCode?): { GuiObject }
 	local tokens = VideFoundation.Hooks.useTokens()
 
 	--* Spacing from Roblox's TopBar/Constants.lua: buttons Gap.Medium from the top, Padding.Small after Roblox's
@@ -86,7 +186,132 @@ local function Holders(inset: (() -> Rect)?): { GuiObject }
 		return inset == nil or inset().Height > 0
 	end
 
+	local function layer(name: string, zIndex: number): GuiObject
+		local view = VideFoundation.View({
+			tag = "size-full",
+			ZIndex = zIndex,
+		})
+		view.Name = name
+		return view
+	end
+
+	local menus = layer("Menus", 5)
+	local tooltips = layer("Tooltips", 10)
+
+	local _, screenSize = trackAbsolute(menus)
+	local function screenWidth(): number
+		return screenSize().X
+	end
+	local healthBarWidth = if inset then useHealthBarWidth(screenWidth) else nil
+
+	if inset then
+		local used, iconToSelect = gamepad.useGamepad(getRoot, highlightKey)
+		if highlightKey then
+			GamepadHint(tooltips, highlightKey, used, iconToSelect, getRoot)
+		end
+	end
+
+	local function leftStart(): number
+		return (if inset then inset().Min.X else 0) + tokens().Padding.Small
+	end
+
+	--- Where the right holder ends: Gap.Large from the free area's edge, or, while Roblox's health bar shows,
+	--- Padding.Small before it, as Roblox spaces its own right-hand Unibar from it. The bar ends Gap.Large from the
+	--- screen's edge, wherever the free area ends.
+	local function rightEnd(): number
+		local right = (if inset then inset().Max.X else screenWidth()) - tokens().Gap.Large
+		local healthBar = if healthBarWidth then healthBarWidth() else 0
+		if healthBar > 0 then
+			local healthBarLeft = screenWidth() - tokens().Gap.Large - healthBar
+			right = math.min(right, healthBarLeft - tokens().Padding.Small)
+		end
+		return right
+	end
+
+	local entries: { [Side]: () -> { [number]: Entry } } = {
+		Left = entriesOn("Left"),
+		Center = entriesOn("Center"),
+		Right = entriesOn("Right"),
+	}
+
+	--- Each drawn entry's width, by id, measured whether it is shown or hidden in an overflow menu.
+	local widths = Vide.source({} :: { [number]: number })
+	local function setWidth(id: number, width: number?)
+		local current = Vide.untrack(widths)
+		if current[id] ~= width then
+			local updated = table.clone(current)
+			updated[id] = width
+			widths(updated)
+		end
+	end
+
+	local function items(side: Side): { overflow.Item }
+		local measured = widths()
+		local list = {}
+		for id, entry in entries[side]() do
+			table.insert(list, { id = id, order = overflow.orderOf(entry), width = measured[id] or 0 })
+		end
+		return list
+	end
+
+	local hidden = Vide.derive(function()
+		return overflow.plan({
+			left = items("Left"),
+			center = items("Center"),
+			right = items("Right"),
+			leftStart = leftStart(),
+			rightEnd = rightEnd(),
+			screenWidth = screenWidth(),
+			gap = tokens().Padding.Small,
+			overflowWidth = tokens().Size.Size_1100,
+		})
+	end)
+
+	local function hiddenOn(side: Side): overflow.Hidden
+		local plan = hidden()
+		return if side == "Left" then plan.Left elseif side == "Right" then plan.Right else {}
+	end
+
+	--- The icon a side shows while some of its entries don't fit, holding them as rows of its menu, like the ⋯ menu
+	--- Roblox moves Unibar items into. It sits at the side's screen edge.
+	local function OverflowIcon(
+		side: Side,
+		button: Vide.Source<GuiObject?>,
+		sideOf: () -> Side
+	): () -> (GuiObject | { GuiObject })?
+		local rows = registry.newContainer("Menu")
+		Vide.effect(function()
+			rows.entries(overflow.rowsFor(hiddenOn(side), entries[side]()))
+		end)
+		local overflowEntry: registry.IconEntry = {
+			kind = "Icon",
+			props = {
+				icon = OVERFLOW_ICON,
+				tooltip = OVERFLOW_TOOLTIP,
+				order = if side == "Left" then -OVERFLOW_ORDER else OVERFLOW_ORDER,
+			},
+			menu = rows,
+			isOverflow = true,
+		}
+		return Vide.show(function()
+			return if next(hiddenOn(side)) then true else nil
+		end, function()
+			local view = IconView(overflowEntry, "Standalone", sideOf)
+			button(view)
+			Vide.cleanup(function()
+				button(nil)
+			end)
+			return view
+		end)
+	end
+
 	local function holder(side: Side, anchorPoint: Vector2, position: () -> UDim2): GuiObject
+		local function sideOf(): Side
+			return side
+		end
+		local overflowButton = Vide.source(nil :: GuiObject?)
+		local getOverflowButton: () -> GuiObject? = overflowButton
+
 		return VideFoundation.View({
 			tag = "auto-x row align-y-center gap-small",
 			AnchorPoint = anchorPoint,
@@ -95,33 +320,57 @@ local function Holders(inset: (() -> Rect)?): { GuiObject }
 				return UDim2.fromOffset(0, tokens().Size.Size_1100)
 			end,
 			Visible = isReady,
-			children = Vide.indexes(iconsOn(side), function(props)
-				return IconView(props())
-			end),
+			children = {
+				Vide.indexes(entries[side], function(entry: () -> Entry, id: number): GuiObject?
+					local function isHidden(): boolean
+						return hiddenOn(side)[id] == true
+					end
+					local view = EntryView(entry(), sideOf, function()
+						return if isHidden() then getOverflowButton() else nil
+					end)
+					if view == nil then
+						return nil
+					end
+
+					--* An icon reports the width it rests at, so a labelled menu icon narrowing into its x doesn't
+					--* reshuffle the overflow while its menu is open.
+					local function measure()
+						local resting = view:GetAttribute(RESTING_WIDTH_ATTRIBUTE)
+						setWidth(id, if type(resting) == "number" then resting else view.AbsoluteSize.X)
+					end
+					Vide.cleanup(view:GetPropertyChangedSignal("AbsoluteSize"):Connect(measure))
+					Vide.cleanup(view:GetAttributeChangedSignal(RESTING_WIDTH_ATTRIBUTE):Connect(measure))
+					Vide.cleanup(function()
+						setWidth(id, nil)
+					end)
+					measure()
+
+					Vide.effect(function()
+						view.Visible = not isHidden()
+					end)
+					return view
+				end),
+				if side ~= "Center" then OverflowIcon(side, overflowButton, sideOf) else nil,
+			},
 		})
 	end
 
-	local tooltips = VideFoundation.View({
-		tag = "size-full",
-		ZIndex = 10,
-	})
-	tooltips.Name = "Tooltips"
-
-	return layers.tooltipLayer(tooltips, function()
-		return {
-			tooltips,
-			holder("Left", Vector2.zero, function()
-				local left = if inset then inset().Min.X else 0
-				return UDim2.fromOffset(left + tokens().Padding.Small, top())
-			end),
-			holder("Center", Vector2.new(0.5, 0), function()
-				return UDim2.new(0.5, 0, 0, top())
-			end),
-			holder("Right", Vector2.new(1, 0), function()
-				local edge = if inset then UDim2.fromOffset(inset().Max.X, 0) else UDim2.fromScale(1, 0)
-				return edge + UDim2.fromOffset(-tokens().Gap.Large, top())
-			end),
-		}
+	return layers.menuLayer(menus, function()
+		return layers.tooltipLayer(tooltips, function()
+			return {
+				menus,
+				tooltips,
+				holder("Left", Vector2.zero, function()
+					return UDim2.fromOffset(leftStart(), top())
+				end),
+				holder("Center", Vector2.new(0.5, 0), function()
+					return UDim2.new(0.5, 0, 0, top())
+				end),
+				holder("Right", Vector2.new(1, 0), function()
+					return UDim2.fromOffset(rightEnd(), top())
+				end),
+			}
+		end)
 	end)
 end
 
@@ -143,12 +392,32 @@ local function mount(options: MountOptions?): () -> ()
 		local device: VideFoundation.Device = if isLive and GuiService:IsTenFootInterface()
 			then "Console"
 			else "Desktop"
+
+		--* Shortcuts go through the Input Action System; a story has no player input to bind.
+		local inputContext: InputContext? = nil
+		if isLive then
+			local context = Instance.new("InputContext")
+			context.Name = "VideTopbarShortcuts"
+			Vide.cleanup(context)
+			inputContext = context
+		end
+
+		local configuredKey = resolved.gamepadHighlightKey
+		local highlightKey: Enum.KeyCode? = if configuredKey == false
+			then nil
+			else configuredKey or DEFAULT_HIGHLIGHT_KEY
+		local rootInstance: Instance? = nil
+
 		local provider = VideFoundation.FoundationProvider({
 			colorMode = resolved.colorMode or "Dark",
 			device = device,
 			preferences = if isLive then livePreferences() else nil,
 			children = function()
-				return Holders(inset)
+				return shortcuts.inputContext(inputContext, function()
+					return Holders(inset, function()
+						return rootInstance
+					end, highlightKey)
+				end)
 			end,
 		})
 
@@ -172,6 +441,10 @@ local function mount(options: MountOptions?): () -> ()
 			})
 		root.Parent = target
 		Vide.cleanup(root)
+		rootInstance = root
+		if inputContext then
+			inputContext.Parent = root
+		end
 	end)
 
 	return destroy
