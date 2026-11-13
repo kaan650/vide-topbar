@@ -5,6 +5,7 @@ local IconView = require("./IconView")
 local Vide = require("./Packages/Vide")
 local VideFoundation = require("./Packages/VideFoundation")
 local create = require("./Utility/create")
+local layers = require("./layers")
 local registry = require("./registry")
 local types = require("./types")
 
@@ -100,19 +101,28 @@ local function Holders(inset: (() -> Rect)?): { GuiObject }
 		})
 	end
 
-	return {
-		holder("Left", Vector2.zero, function()
-			local left = if inset then inset().Min.X else 0
-			return UDim2.fromOffset(left + tokens().Padding.Small, top())
-		end),
-		holder("Center", Vector2.new(0.5, 0), function()
-			return UDim2.new(0.5, 0, 0, top())
-		end),
-		holder("Right", Vector2.new(1, 0), function()
-			local edge = if inset then UDim2.fromOffset(inset().Max.X, 0) else UDim2.fromScale(1, 0)
-			return edge + UDim2.fromOffset(-tokens().Gap.Large, top())
-		end),
-	}
+	local tooltips = VideFoundation.View({
+		tag = "size-full",
+		ZIndex = 10,
+	})
+	tooltips.Name = "Tooltips"
+
+	return layers.tooltipLayer(tooltips, function()
+		return {
+			tooltips,
+			holder("Left", Vector2.zero, function()
+				local left = if inset then inset().Min.X else 0
+				return UDim2.fromOffset(left + tokens().Padding.Small, top())
+			end),
+			holder("Center", Vector2.new(0.5, 0), function()
+				return UDim2.new(0.5, 0, 0, top())
+			end),
+			holder("Right", Vector2.new(1, 0), function()
+				local edge = if inset then UDim2.fromOffset(inset().Max.X, 0) else UDim2.fromScale(1, 0)
+				return edge + UDim2.fromOffset(-tokens().Gap.Large, top())
+			end),
+		}
+	end)
 end
 
 --- Puts the topbar on screen and draws every icon added with `VideTopbar.Icon`. Returns a function that removes it.
