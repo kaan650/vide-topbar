@@ -178,7 +178,12 @@ local function Tooltip(props: TooltipProps)
 					ZIndex = 2,
 				}),
 				VideFoundation.View({
-					tag = "auto-xy col gap-small padding-medium radius-medium",
+					--* The keycaps are always centered, so a title over them is too, as on Roblox's menu button
+					--* (TopBar MenuIcon passes textAlignment Center with its Esc key; Unibar's IconHost passes Left).
+					tag = function()
+						local tag = "auto-xy col gap-small padding-medium radius-medium"
+						return if hasHotkeys() then `{tag} align-x-center` else tag
+					end,
 					backgroundStyle = surface,
 					Position = UDim2.fromOffset(SHADOW_SIDE, boxTop),
 					ZIndex = 2,
@@ -208,7 +213,9 @@ local function Tooltip(props: TooltipProps)
 							TextTransparency = function()
 								return tokens().Color.Content.Emphasis.Transparency
 							end,
-							TextXAlignment = Enum.TextXAlignment.Left,
+							TextXAlignment = function()
+								return if hasHotkeys() then Enum.TextXAlignment.Center else Enum.TextXAlignment.Left
+							end,
 							TextYAlignment = Enum.TextYAlignment.Center,
 							TextWrapped = true,
 							TextTruncate = Enum.TextTruncate.AtEnd,
@@ -247,7 +254,7 @@ local function Tooltip(props: TooltipProps)
 									Vide.indexes(
 										hotkeys,
 										function(keyCode: () -> Enum.KeyCode, index: number): GuiObject
-											return KeyCap.KeyCap(keyCode(), index)
+											return KeyCap.KeyCap(keyCode, index)
 										end
 									),
 								},

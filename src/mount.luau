@@ -103,16 +103,18 @@ local function livePreferences(): () -> Preferences?
 	return preferences
 end
 
---- The three holders. Without an inset (a story) the free area is the whole target.
---? TopbarInset may not account for a phone's notch; check in the device emulator.
---- TopbarPlus's indicator: the highlight key's button under the icon it would select, shown to a gamepad player until
---- they have used it, so they know how to reach the topbar. Drawn like an icon: the glyph on the topbar's backplate.
+type Hint = { icon: GuiObject, key: Enum.KeyCode }
+
+--- TopbarPlus's indicator, for a gamepad player: the highlight key under the icon it would select until they have used
+--- it, then B under the selected icon until they have left the topbar with it once. Drawn like an icon, the button's
+--- glyph on the topbar's backplate, and under the icon rather than in it as TopbarPlus has it, so selecting an icon
+--- doesn't widen it and shift its neighbours.
 local function GamepadHint(
 	layer: GuiObject,
-	key: Enum.KeyCode,
-	used: () -> boolean,
-	iconToSelect: () -> GuiObject?,
-	getRoot: () -> Instance?
+	highlightKey: Enum.KeyCode?,
+	state: gamepad.Gamepad,
+	getRoot: () -> Instance?,
+	isReady: () -> boolean
 )
 	local tokens = VideFoundation.Hooks.useTokens()
 	local backplate = useBackplate()
@@ -128,50 +130,132 @@ local function GamepadHint(
 		selected(GuiService.SelectedObject)
 	end))
 
-	local function target(): GuiObject?
+	--* Icons appear after the topbar does, so the hint looks again whenever the topbar's contents change, at most once a
+	--* frame. Without it a player already on a gamepad never saw it.
+	local contents = Vide.source(0)
+	local pending = false
+	Vide.effect(function()
 		local root = getRoot()
-		if used() or preferredInput() ~= Enum.PreferredInput.Gamepad or root == nil then
+		if root == nil then
+			return
+		end
+		local function changed()
+			if pending then
+				return
+			end
+			pending = true
+			task.defer(function()
+				pending = false
+				contents(Vide.untrack(contents) + 1)
+			end)
+		end
+		Vide.cleanup(root.DescendantAdded:Connect(changed))
+		Vide.cleanup(root.DescendantRemoving:Connect(changed))
+	end)
+
+	local function hint(): Hint?
+		local root = getRoot()
+		if preferredInput() ~= Enum.PreferredInput.Gamepad or root == nil then
 			return nil
 		end
-		if gamepad.isInside(getSelected(), root) then
+		local selectedObject = getSelected()
+		if selectedObject and gamepad.isInside(selectedObject, root) then
+			if state.usedBack() or not selectedObject:GetAttribute(gamepad.ICON_ATTRIBUTE) then
+				return nil
+			end
+			return { icon = selectedObject, key = Enum.KeyCode.ButtonB }
+		end
+		if highlightKey == nil or state.usedHighlight() then
 			return nil
 		end
-		return iconToSelect()
+		--* The holders stay hidden until TopbarInset loads, which adds nothing to the topbar, so the hint waits on that
+		--* as well as on its contents.
+		contents()
+		if not isReady() then
+			return nil
+		end
+		local icon = state.iconToSelect()
+		return if icon then { icon = icon, key = highlightKey } else nil
 	end
 
-	Vide.show(target, function(icon: () -> GuiObject)
-		local iconPosition, iconSize = trackAbsolute(Vide.untrack(icon))
-		local hint = VideFoundation.View({
-			tag = "radius-circle",
-			AnchorPoint = Vector2.new(0.5, 0),
-			Position = function()
-				local position = iconPosition() - layerPosition()
-				return UDim2.fromOffset(position.X + iconSize().X / 2, position.Y + iconSize().Y + tokens().Gap.Small)
-			end,
-			Size = function()
-				local size = tokens().Size.Size_900
-				return UDim2.fromOffset(size, size)
-			end,
-			backgroundStyle = backplate,
-			children = {
-				VideFoundation.Image({
-					ImageContent = Content.fromUri(UserInputService:GetImageForKeyCode(key)),
-					AnchorPoint = Vector2.new(0.5, 0.5),
-					Position = UDim2.fromScale(0.5, 0.5),
-					Size = function()
-						local size = tokens().Size.Size_600
-						return UDim2.fromOffset(size, size)
-					end,
-				}),
-			},
-		})
-		hint.Name = "VideTopbarGamepadHint"
-		hint.Parent = layer
-		Vide.cleanup(hint)
-		return hint
+	--! Not `Vide.show(hint, ...)`: show reads its input from two nodes, and Vide's updates aren't glitch-free, so the
+	--! component could be built before its value was set and index nil.
+	local shown = Vide.source(nil :: Hint?)
+	local getShown: () -> Hint? = shown
+	Vide.effect(function()
+		local nextHint = hint()
+		local previous = Vide.untrack(getShown)
+		if nextHint == nil then
+			if previous ~= nil then
+				shown(nil)
+			end
+		elseif previous == nil or previous.icon ~= nextHint.icon or previous.key ~= nextHint.key then
+			shown(nextHint)
+		end
 	end)
+
+	--* The hint moves from icon to icon with the selection, so it follows whichever icon it is under.
+	local moved = Vide.source(0)
+	Vide.effect(function()
+		local current = getShown()
+		if current == nil then
+			return
+		end
+		local function bump()
+			moved(Vide.untrack(moved) + 1)
+		end
+		Vide.cleanup(current.icon:GetPropertyChangedSignal("AbsolutePosition"):Connect(bump))
+		Vide.cleanup(current.icon:GetPropertyChangedSignal("AbsoluteSize"):Connect(bump))
+	end)
+
+	local view = VideFoundation.View({
+		tag = "radius-circle",
+		Visible = function()
+			return getShown() ~= nil
+		end,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = function()
+			moved()
+			local current = getShown()
+			if current == nil then
+				return UDim2.new()
+			end
+			local icon = current.icon
+			local position = icon.AbsolutePosition - layerPosition()
+			return UDim2.fromOffset(
+				position.X + icon.AbsoluteSize.X / 2,
+				position.Y + icon.AbsoluteSize.Y + tokens().Gap.Small
+			)
+		end,
+		Size = function()
+			local size = tokens().Size.Size_900
+			return UDim2.fromOffset(size, size)
+		end,
+		backgroundStyle = backplate,
+		children = {
+			VideFoundation.Image({
+				ImageContent = function()
+					local current = getShown()
+					return if current
+						then Content.fromUri(UserInputService:GetImageForKeyCode(current.key))
+						else Content.none
+				end,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = function()
+					local size = tokens().Size.Size_600
+					return UDim2.fromOffset(size, size)
+				end,
+			}),
+		},
+	})
+	view.Name = "VideTopbarGamepadHint"
+	view.Parent = layer
+	Vide.cleanup(view)
 end
 
+--- The three holders. Without an inset (a story) the free area is the whole target.
+--? TopbarInset may not account for a phone's notch; check in the device emulator.
 local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlightKey: Enum.KeyCode?): { GuiObject }
 	local tokens = VideFoundation.Hooks.useTokens()
 
@@ -205,10 +289,7 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 	local healthBarWidth = if inset then useHealthBarWidth(screenWidth) else nil
 
 	if inset then
-		local used, iconToSelect = gamepad.useGamepad(getRoot, highlightKey)
-		if highlightKey then
-			GamepadHint(tooltips, highlightKey, used, iconToSelect, getRoot)
-		end
+		GamepadHint(tooltips, highlightKey, gamepad.useGamepad(getRoot, highlightKey), getRoot, isReady)
 	end
 
 	local function leftStart(): number
@@ -234,9 +315,20 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 		Right = entriesOn("Right"),
 	}
 
+	--! Vide runs a scope's cleanups before it destroys what the scope owns, and cuts each scope from its owner, so while
+	--! the topbar is removed its icons clean up with the providers above them already gone. A width written then
+	--! re-planned the overflow and built an overflow icon outside them ("No StyleProvider found").
+	local removing = false
+	Vide.cleanup(function()
+		removing = true
+	end)
+
 	--- Each drawn entry's width, by id, measured whether it is shown or hidden in an overflow menu.
 	local widths = Vide.source({} :: { [number]: number })
 	local function setWidth(id: number, width: number?)
+		if removing then
+			return
+		end
 		local current = Vide.untrack(widths)
 		if current[id] ~= width then
 			local updated = table.clone(current)
@@ -406,7 +498,9 @@ local function mount(options: MountOptions?): () -> ()
 		local highlightKey: Enum.KeyCode? = if configuredKey == false
 			then nil
 			else configuredKey or DEFAULT_HIGHLIGHT_KEY
-		local rootInstance: Instance? = nil
+		--* A source, as the gamepad hint looks for icons once the ScreenGui exists.
+		local rootInstance = Vide.source(nil :: Instance?)
+		local getRoot: () -> Instance? = rootInstance
 
 		local provider = VideFoundation.FoundationProvider({
 			colorMode = resolved.colorMode or "Dark",
@@ -414,9 +508,7 @@ local function mount(options: MountOptions?): () -> ()
 			preferences = if isLive then livePreferences() else nil,
 			children = function()
 				return shortcuts.inputContext(inputContext, function()
-					return Holders(inset, function()
-						return rootInstance
-					end, highlightKey)
+					return Holders(inset, getRoot, highlightKey)
 				end)
 			end,
 		})
@@ -441,7 +533,7 @@ local function mount(options: MountOptions?): () -> ()
 			})
 		root.Parent = target
 		Vide.cleanup(root)
-		rootInstance = root
+		rootInstance(root)
 		if inputContext then
 			inputContext.Parent = root
 		end

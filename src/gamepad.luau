@@ -43,12 +43,20 @@ local function menuHolding(object: Instance): OpenMenu?
 	return nil
 end
 
+export type Gamepad = {
+	--- Whether the highlight key and B have been used, for the hints shown until they have.
+	usedHighlight: () -> boolean,
+	usedBack: () -> boolean,
+	--- The icon the highlight key would select.
+	iconToSelect: () -> GuiObject?,
+}
+
 --- Gamepad support for a mounted topbar, as TopbarPlus has: `highlightKey` selects the icon last selected (or the
 --- left-most), B steps back out of a menu and then off the topbar, and a mouse click lets go of the selection.
---- `getRoot` returns the topbar's ScreenGui once it exists. Returns whether the highlight key has been used, for the
---- hint shown until it has, and the icon it would select.
-local function useGamepad(getRoot: () -> Instance?, highlightKey: Enum.KeyCode?): (() -> boolean, () -> GuiObject?)
+--- `getRoot` returns the topbar's ScreenGui once it exists.
+local function useGamepad(getRoot: () -> Instance?, highlightKey: Enum.KeyCode?): Gamepad
 	local used = Vide.source(false)
+	local usedBack = Vide.source(false)
 	local lastSelected: GuiObject? = nil
 
 	local function topbarIcons(root: Instance): { GuiObject }
@@ -128,6 +136,7 @@ local function useGamepad(getRoot: () -> Instance?, highlightKey: Enum.KeyCode?)
 			menu.close()
 			GuiService.SelectedObject = menu.trigger
 		else
+			usedBack(true)
 			GuiService.SelectedObject = nil
 		end
 	end)
@@ -139,7 +148,11 @@ local function useGamepad(getRoot: () -> Instance?, highlightKey: Enum.KeyCode?)
 		end
 	end))
 
-	return used, iconToSelect
+	return {
+		usedHighlight = used,
+		usedBack = usedBack,
+		iconToSelect = iconToSelect,
+	}
 end
 
 return {

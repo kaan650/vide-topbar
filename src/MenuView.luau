@@ -6,6 +6,7 @@ local VideFoundation = require("./Packages/VideFoundation")
 local BadgeView = require("./BadgeView")
 local VideRipple = require("./Packages/VideRipple")
 local create = require("./Utility/create")
+local disabled = require("./Utility/disabled")
 local readBadge = require("./Utility/readBadge")
 local gamepad = require("./gamepad")
 local overflow = require("./overflow")
@@ -48,7 +49,7 @@ end
 --- What pressing a row does, from the list or from its shortcut. The menu closes either way, as Roblox's closes on
 --- any click.
 local function activateRow(props: types.IconProps, close: () -> ())
-	if isLocked(props) then
+	if isLocked(props) or disabled.isDisabled(props) then
 		return
 	end
 	close()
@@ -112,6 +113,20 @@ local function MenuRow(
 		return selected ~= nil and selected()
 	end
 
+	--* Everything in a row fades with the list, as CommonIcon fades SubMenu's icons: with reduced motion the list
+	--* doesn't shrink away, so anything left opaque would stand on its own until the list is removed.
+	local function fade(transparency: number): number
+		return transparency + (1 - transparency) * (1 - transition())
+	end
+
+	local function faded(style: ColorStyle): ColorStyle
+		return { Color3 = style.Color3, Transparency = fade(style.Transparency or 0) }
+	end
+
+	local function isDisabled(): boolean
+		return disabled.isDisabled(props)
+	end
+
 	local function rowStyle(): ColorStyle
 		local colors = tokens().Color.State
 		local current = state()
@@ -119,12 +134,12 @@ local function MenuRow(
 			then colors.Press
 			elseif current == ControlState.Hover then colors.Hover
 			else nil
-		return if color then { Color3 = color.Color3, Transparency = color.Transparency } else CLEAR
+		return if color then faded({ Color3 = color.Color3, Transparency = color.Transparency }) else CLEAR
 	end
 
 	local function glyphStyle(): ColorStyle
 		local emphasis = tokens().Color.Content.Emphasis
-		return { Color3 = emphasis.Color3, Transparency = emphasis.Transparency }
+		return faded({ Color3 = emphasis.Color3, Transparency = disabled.dimmed(emphasis.Transparency, isDisabled()) })
 	end
 
 	return VideFoundation.View({
@@ -182,7 +197,7 @@ local function MenuRow(
 							Size = UDim2.fromOffset(highlight, highlight),
 							backgroundStyle = function()
 								local hover = tokens().Color.State.Hover
-								return { Color3 = hover.Color3, Transparency = hover.Transparency }
+								return faded({ Color3 = hover.Color3, Transparency = hover.Transparency })
 							end,
 							Visible = isSelected,
 						}),
@@ -202,6 +217,13 @@ local function MenuRow(
 						end, function(content)
 							return VideFoundation.Image({
 								ImageContent = content,
+								--* White leaves the image's own colors untinted, as Image draws it without a style.
+								imageStyle = function()
+									return faded({
+										Color3 = Color3.new(1, 1, 1),
+										Transparency = disabled.dimmed(0, isDisabled()),
+									})
+								end,
 								AnchorPoint = anchor,
 								Position = center,
 								Size = function()
@@ -231,7 +253,7 @@ local function MenuRow(
 				end,
 				--* MenuRow fades the label in with the menu.
 				TextTransparency = function()
-					return 1 - transition()
+					return fade(disabled.dimmed(0, isDisabled()))
 				end,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextTruncate = Enum.TextTruncate.AtEnd,
@@ -241,7 +263,17 @@ local function MenuRow(
 				}),
 			}),
 			show(hasBadge, function()
-				return BadgeView.BadgeView({ value = badge, LayoutOrder = 3 })
+				--! Foundation's badges take no transparency, so the badge fades as a CanvasGroup.
+				return VideFoundation.View({
+					tag = "auto-xy",
+					LayoutOrder = 3,
+					GroupTransparency = function()
+						return 1 - transition()
+					end,
+					children = {
+						BadgeView.BadgeView({ value = badge }),
+					},
+				})
 			end),
 		},
 	})
@@ -300,9 +332,11 @@ local function MenuView(props: MenuProps)
 		local trigger = Vide.untrack(props.anchor)
 		local anchorPosition, anchorSize = trackAbsolute(trigger)
 
-		--* SubMenuHost closes the menu on any click or tap, rows included. The click that opens it must not count,
-		--* whichever of its events comes first, so closing is armed a frame after each opening. A click on the icon
-		--* itself both closes it here and toggles it there; deferring this close lets either order end closed.
+		--* SubMenuHost closes the menu on any click or tap; here a click on the list is left to its rows, which close
+		--* it when pressed, so a disabled or locked row keeps it open as a desktop menu does. Roblox has no such rows.
+		--* The click that opens it must not count, whichever of its events comes first, so closing is armed a frame
+		--* after each opening. A click on the icon itself both closes it here and toggles it there; deferring this
+		--* close lets either order end closed.
 		local armed = false
 		local arming: thread? = nil
 		local function disarm()
@@ -323,8 +357,20 @@ local function MenuView(props: MenuProps)
 			end
 		end)
 
-		local function closeFromOutside()
-			if armed and props.isOpen() and props.closeOnOutsideClick() then
+		local list: GuiObject? = nil
+
+		--* Input positions are in AbsolutePosition's space, as Foundation's isPointInGuiObjectBounds compares them.
+		local function isOnList(position: Vector2): boolean
+			if list == nil then
+				return false
+			end
+			local offset = position - list.AbsolutePosition
+			local size = list.AbsoluteSize
+			return offset.X >= 0 and offset.Y >= 0 and offset.X <= size.X and offset.Y <= size.Y
+		end
+
+		local function closeFromOutside(position: Vector2)
+			if armed and props.isOpen() and props.closeOnOutsideClick() and not isOnList(position) then
 				task.defer(props.close)
 			end
 		end
@@ -332,7 +378,7 @@ local function MenuView(props: MenuProps)
 		local lastTouch = Vector2.zero
 		Vide.cleanup(UserInputService.InputEnded:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.MouseButton1 then
-				closeFromOutside()
+				closeFromOutside(Vector2.new(input.Position.X, input.Position.Y))
 			end
 		end))
 		Vide.cleanup(UserInputService.TouchStarted:Connect(function(touch)
@@ -341,7 +387,7 @@ local function MenuView(props: MenuProps)
 		Vide.cleanup(UserInputService.TouchTap:Connect(function(positions)
 			--* A drag that ends where it started is still a tap; one that moved is not.
 			if positions[1] == lastTouch then
-				closeFromOutside()
+				closeFromOutside(lastTouch)
 			end
 		end))
 
@@ -428,6 +474,7 @@ local function MenuView(props: MenuProps)
 			},
 		})
 		frame.Name = "VideTopbarMenu"
+		list = frame
 		frame.Parent = props.layer
 		Vide.cleanup(frame)
 

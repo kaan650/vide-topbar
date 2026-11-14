@@ -1,36 +1,54 @@
-local Vide = require("@game/ReplicatedStorage/Packages/Vide")
 local UILabs = require("@game/ReplicatedStorage/DevPackages/UILabs")
 local VideTopbar = require("@game/ReplicatedStorage/Packages/VideTopbar")
-local create = require("@game/ReplicatedStorage/Packages/VideTopbar/Utility/create")
+local stage = require("./stage")
 
-return {
-	summary = "Icons on each side of the topbar, over a stand-in for the game view.",
-	vide = Vide,
+local NONE = "none"
+
+local function orNil(control: () -> string): () -> string?
+	return function()
+		local value = control()
+		return if value == NONE then nil else value
+	end
+end
+
+return stage.topbar({
+	summary = "One icon and its props, between a few neighbours. Clear `icon` to see `image`; a label makes it a pill.",
 	controls = {
+		side = UILabs.Choose({ "Left", "Center", "Right" }),
+		icon = UILabs.Choose({ "shopping-cart", "gear", "bell", "trophy", "backpack", NONE }),
+		image = UILabs.Choose({ "shop", "premium", "example", NONE }),
 		label = "Shop",
-		icon = UILabs.Choose({ "shopping-cart", "gear", "bell" }),
+		tooltip = "Open the shop",
+		badge = UILabs.Choose({ NONE, "3", "120", "dot", "NEW" }),
+		minWidth = UILabs.Slider(0, 0, 240, 4),
+		selected = false,
 		disabled = false,
+		locked = false,
 	},
-	story = function(props: { controls: { [string]: any } })
-		local scene = create("Frame")({
-			Name = "Scene",
-			Size = UDim2.fromScale(1, 1),
-			BackgroundColor3 = Color3.fromRGB(86, 120, 150),
-		})
-		Vide.cleanup(VideTopbar.mount({ target = scene }))
-
-		local selected = Vide.source(false)
+	build = function(controls)
 		VideTopbar.Icon({
-			icon = props.controls.icon,
-			label = props.controls.label,
-			selected = selected,
-			isDisabled = props.controls.disabled,
+			side = controls.side,
 			order = 1,
+			icon = orNil(controls.icon),
+			image = function()
+				local name = controls.image()
+				return if name == NONE then nil else stage.images[name]
+			end,
+			label = controls.label,
+			tooltip = controls.tooltip,
+			badge = function()
+				local value = controls.badge()
+				return if value == NONE then nil elseif value == "dot" then true else tonumber(value) or value
+			end,
+			minWidth = controls.minWidth,
+			selected = stage.mirror(controls.selected),
+			isDisabled = controls.disabled,
+			isLocked = controls.locked,
+			onActivated = stage.action("icon"),
 		})
-		VideTopbar.Icon({ icon = "gear", order = 2 })
-		VideTopbar.Icon({ side = "Center", label = "Round 1" })
-		VideTopbar.Icon({ side = "Right", icon = "bell" })
 
-		return scene
+		VideTopbar.Icon({ order = 2, icon = "gear", tooltip = "Settings" })
+		VideTopbar.Icon({ side = "Center", order = 2, label = "Round 1" })
+		VideTopbar.Icon({ side = "Right", order = 2, icon = "bell", tooltip = "Notifications" })
 	end,
-}
+})

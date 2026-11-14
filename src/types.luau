@@ -46,6 +46,7 @@ export type IconProps = {
 	--- Unselects the icon, and closes its menu, whenever another icon is selected or opens its menu, like TopbarPlus's
 	--- `autoDeselect` (which TopbarPlus turns on by default).
 	autoDeselect: Value<boolean?>?,
+	--- Ignores presses and shortcuts and dims the icon, as Foundation draws a disabled control.
 	isDisabled: Value<boolean>?,
 	--- Ignores presses and shortcuts without looking disabled, like TopbarPlus's `lock`.
 	isLocked: Value<boolean?>?,

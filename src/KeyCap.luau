@@ -51,7 +51,7 @@ local function width(keyCode: Enum.KeyCode, body: measureText.Typography): numbe
 end
 
 --- A keyboard key as Roblox's topbar tooltips draw it.
-local function KeyCap(keyCode: Enum.KeyCode, layoutOrder: number): GuiObject
+local function KeyCap(keyCode: () -> Enum.KeyCode, layoutOrder: number): GuiObject
 	local tokens = VideFoundation.Hooks.useTokens()
 
 	return VideFoundation.Image({
@@ -62,14 +62,16 @@ local function KeyCap(keyCode: Enum.KeyCode, layoutOrder: number): GuiObject
 		end,
 		slice = { center = SLICE_CENTER },
 		Size = function()
-			return UDim2.fromOffset(width(keyCode, tokens().Typography.BodySmall), HEIGHT)
+			return UDim2.fromOffset(width(keyCode(), tokens().Typography.BodySmall), HEIGHT)
 		end,
 		LayoutOrder = layoutOrder,
 		children = {
 			create("TextLabel")({
 				Name = "Key",
 				BackgroundTransparency = 1,
-				Text = keyText(keyCode),
+				Text = function()
+					return keyText(keyCode())
+				end,
 				FontFace = function()
 					return tokens().Typography.CaptionMedium.Font
 				end,

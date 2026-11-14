@@ -44,6 +44,7 @@ local premiumNotices = Vide.source(1)
 local points = Vide.source(math.random(1, 1000))
 local fillers = Vide.source(0)
 local profileOpen = Vide.source(false)
+local vipDisabled = Vide.source(true)
 
 local function say(text: string): () -> ()
 	return function()
@@ -154,6 +155,16 @@ Vide.root(function()
 			})
 		end,
 	})
+	--* Not in the TopbarPlus demo: VIP starts disabled, dimmed and deaf to V, until More's first row enables it.
+	VideTopbar.Icon({
+		order = 4,
+		icon = "crown",
+		label = "VIP",
+		tooltip = "VIP lounge",
+		shortcut = Enum.KeyCode.V,
+		isDisabled = vipDisabled,
+		onActivated = say("vip"),
+	})
 
 	VideTopbar.Group({ side = "Right", order = 1 }, function()
 		VideTopbar.Icon({
@@ -184,6 +195,16 @@ Vide.root(function()
 			icon = "three-bars-horizontal",
 			tooltip = "More",
 			menu = function()
+				VideTopbar.Icon({
+					order = 0,
+					icon = "crown",
+					label = function()
+						return if vipDisabled() then "Enable VIP" else "Disable VIP"
+					end,
+					onActivated = function()
+						vipDisabled(not vipDisabled())
+					end,
+				})
 				VideTopbar.Icon({ order = 1, icon = "gear", label = "Settings", onActivated = say("settings") })
 				VideTopbar.Icon({
 					order = 2,
@@ -191,6 +212,15 @@ Vide.root(function()
 					label = "Notifications",
 					badge = true,
 					onActivated = say("notifications"),
+				})
+				--* Disabled along with VIP, to show a dimmed row; its shortcut R does nothing until then.
+				VideTopbar.Icon({
+					order = 3,
+					icon = "flag",
+					label = "Report",
+					shortcut = Enum.KeyCode.R,
+					isDisabled = vipDisabled,
+					onActivated = say("report"),
 				})
 			end,
 		})

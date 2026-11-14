@@ -3,6 +3,7 @@ local MenuView = require("./MenuView")
 local Tooltip = require("./Tooltip")
 local Vide = require("./Packages/Vide")
 local VideFoundation = require("./Packages/VideFoundation")
+local disabled = require("./Utility/disabled")
 local gamepad = require("./gamepad")
 local layers = require("./layers")
 local overflow = require("./overflow")
@@ -19,12 +20,16 @@ local ControlState = VideFoundation.Enums.ControlState
 --* A corner badge sits 8 px from the top on Roblox's Unibar icons, measured live: IconHost reads it from UnibarStyle in
 --* CorePackages, which is not on disk.
 local BADGE_TOP = 8
+--* Foundation's SkinToneCircle cursor: a 3 px ring (Providers/Cursor/Cursors/Cursor.lua).
+local SKIN_TONE_CIRCLE_BORDER = 3
 
 --- "Standalone" is a round button of its own, like Roblox's menu button; "Cell" sits on a group's pill, like a
 --- Unibar icon, and highlights a circle instead of its background.
 export type Variant = "Standalone" | "Cell"
 
 type ColorStyle = useBackplate.ColorStyle
+--* Foundation's CursorConfig, which its package doesn't export.
+type CursorConfig = { radius: UDim?, offset: number?, borderWidth: number? }
 
 local function withLayoutOrder(object: GuiObject, layoutOrder: number): GuiObject
 	object.LayoutOrder = layoutOrder
@@ -42,7 +47,19 @@ local function IconView(
 	local props = entry.props
 	local menuRows = entry.menu
 	local tokens = VideFoundation.Hooks.useTokens()
-	local cursor = VideFoundation.Hooks.useCursor(VideFoundation.Enums.CursorType.SkinToneCircle)
+	--* Roblox's gamepad cursor on topbar icons is Foundation's SkinToneCircle, a plain white ring (measured; TopbarPlus's
+	--* rotating gradient is its own). On the Unibar it rings the 36 px hit area, so a cell rings that circle inside
+	--* its 44 px; a round icon rings itself like Roblox's 44 px menu button.
+	local cursor = VideFoundation.Hooks.useCursor(if variant == "Cell"
+		then function(): CursorConfig
+			local size = tokens().Size
+			return {
+				radius = UDim.new(0.5, 0),
+				offset = -(size.Size_1100 - size.Size_900) / 2,
+				borderWidth = SKIN_TONE_CIRCLE_BORDER,
+			}
+		end
+		else VideFoundation.Enums.CursorType.SkinToneCircle)
 	local backplate = useBackplate()
 	local tooltipLayer = layers.tooltipLayer()
 	local menuLayer = layers.menuLayer()
@@ -106,6 +123,10 @@ local function IconView(
 		return (if type(value) == "function" then value() else value) == true
 	end
 
+	local function isDisabled(): boolean
+		return disabled.isDisabled(props)
+	end
+
 	local function autoDeselect(): boolean
 		local value = props.autoDeselect
 		return (if type(value) == "function" then value() else value) == true
@@ -147,7 +168,7 @@ local function IconView(
 	--* Roblox's menu and Unibar glyphs measured rgb(247, 247, 248), the emphasis color, not the Icon default.
 	local function glyphStyle(): ColorStyle
 		local emphasis = tokens().Color.Content.Emphasis
-		return { Color3 = emphasis.Color3, Transparency = emphasis.Transparency }
+		return { Color3 = emphasis.Color3, Transparency = disabled.dimmed(emphasis.Transparency, isDisabled()) }
 	end
 
 	--* The glyph sits where it sits in a round icon, so a label grows the pill to the right only.
@@ -267,7 +288,7 @@ local function IconView(
 	end
 
 	local function activate()
-		if isLocked() then
+		if isLocked() or isDisabled() then
 			return
 		end
 		latched = true
@@ -352,6 +373,10 @@ local function IconView(
 				end, function(content)
 					return VideFoundation.Image({
 						ImageContent = content,
+						--* White leaves the image's own colors untinted, as Image draws it without a style.
+						imageStyle = function()
+							return { Color3 = Color3.new(1, 1, 1), Transparency = disabled.dimmed(0, isDisabled()) }
+						end,
 						AnchorPoint = anchor,
 						Position = center,
 						Size = function()
@@ -447,7 +472,7 @@ local function IconView(
 							tag = "auto-xy text-title-medium",
 							textStyle = function(): ColorStyle
 								local emphasis = tokens().Color.Content.Emphasis
-								local transparency = emphasis.Transparency
+								local transparency = disabled.dimmed(emphasis.Transparency, isDisabled())
 								return {
 									Color3 = emphasis.Color3,
 									Transparency = transparency + (1 - transparency) * contentFade(),
@@ -460,12 +485,24 @@ local function IconView(
 					--* In a pill the badge trails the content, as Unibar's MenuTrailingBadge does in menu rows; on the
 					--* glyph's corner it would cover the label's first letter.
 					show(function()
-						return if isPill() and contentFade() == 0 then hasBadge() else nil
+						return if isPill() then hasBadge() else nil
 					end, function()
 						return {
 							--* An empty item doubles the row gap between the label and the badge.
 							VideFoundation.View({ LayoutOrder = 5 }),
-							BadgeView.BadgeView({ value = badge, LayoutOrder = 6 }),
+							--* A narrowing pill fades its badge with the label, so the badge counts in the width it
+							--* narrows from and comes back with it.
+							--! Foundation's badges take no transparency, so the badge fades as a CanvasGroup.
+							if menuRows and props.label ~= nil
+								then VideFoundation.View({
+									tag = "auto-xy",
+									LayoutOrder = 6,
+									GroupTransparency = contentFade,
+									children = {
+										BadgeView.BadgeView({ value = badge }),
+									},
+								})
+								else BadgeView.BadgeView({ value = badge, LayoutOrder = 6 }),
 						}
 					end),
 				},
