@@ -66,9 +66,9 @@ local function fit(items: { Item }, room: number, gap: number, overflowWidth: nu
 	return hidden
 end
 
---- Which entries each side hides in its overflow menu. Roblox's Unibar moves what doesn't fit into its ⋯ menu;
---- TopbarPlus decides when by where the sides meet, which this follows: up to the centre icons when there are any,
---- otherwise a side needing less than half the bar keeps all it needs and the other gets the rest.
+--- Which entries each side hides in its overflow menu, as Roblox's Unibar moves what doesn't fit into its ⋯ menu. A
+--- side reaches up to the centre icons when there are any; otherwise a side needing less than half the bar keeps all
+--- it needs and the other gets the rest.
 local function plan(input: PlanInput): { Left: Hidden, Right: Hidden }
 	local gap = input.gap
 	local left = table.clone(input.left)

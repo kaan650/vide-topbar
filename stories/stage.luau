@@ -22,7 +22,6 @@ local SCREEN_WIDTHS: { [string]: number } = {
 	["Small phone 320"] = 320,
 }
 
---* The TopbarPlus demo's images, as in dev/Demo.client.luau.
 local images: { [string]: Content } = {
 	example = Content.fromAssetId(16086868244),
 	exampleSelected = Content.fromAssetId(16086868447),

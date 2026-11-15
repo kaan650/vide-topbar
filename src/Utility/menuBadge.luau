@@ -3,9 +3,8 @@ local readBadge = require("./readBadge")
 local registry = require("../registry")
 local types = require("../types")
 
---- An icon's badge with its menu's added up, as TopbarPlus adds a menu's notices to its icon: counts add, and a row's
---- dot or text shows as a dot, as Roblox shows one on its ⋯ icon for activity inside. The icon's own text wins. Rows
---- with menus of their own count theirs too.
+--- An icon's badge with its menu's added up: counts add, and a row's dot or text shows as a dot, as Roblox shows one on
+--- its ⋯ icon for activity inside. The icon's own text wins. Rows with menus of their own count theirs too.
 local function menuBadge(props: types.IconProps, rows: registry.Container?): BadgeView.Badge
 	local own = readBadge(props)
 	if rows == nil or type(own) == "string" then

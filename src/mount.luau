@@ -29,8 +29,8 @@ export type MountOptions = {
 	displayOrder: number?,
 	enabled: Value<boolean>?,
 	colorMode: Value<VideFoundation.ColorMode>?,
-	--- The gamepad button that moves the selection onto the topbar, DPadUp by default as in TopbarPlus. `false` leaves
-	--- the topbar to the gamepad's virtual cursor.
+	--- The gamepad button that moves the selection onto the topbar, DPadUp by default. `false` leaves the topbar to the
+	--- gamepad's virtual cursor.
 	gamepadHighlightKey: (Enum.KeyCode | false)?,
 }
 
@@ -111,10 +111,10 @@ end
 
 type Hint = { icon: GuiObject, key: Enum.KeyCode }
 
---- TopbarPlus's indicator, for a gamepad player: the highlight key under the icon it would select until they have used
---- it, then B under the selected icon until they have left the topbar with it once. Drawn like an icon, the button's
---- glyph on the topbar's backplate, and under the icon rather than in it as TopbarPlus has it, so selecting an icon
---- doesn't widen it and shift its neighbours.
+--- A hint for a gamepad player: the highlight key under the icon it would select until they have used it, then B under
+--- the selected icon until they have left the topbar with it once. Drawn like an icon, the button's glyph on the
+--- topbar's backplate, under the icon rather than in it, so selecting an icon doesn't widen it and shift its
+--- neighbours.
 local function GamepadHint(
 	layer: GuiObject,
 	highlightKey: Enum.KeyCode?,
@@ -293,8 +293,8 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 	end
 	local healthBarWidth = if inset then useHealthBarWidth(screenWidth) else nil
 
-	--- Where the middle of the screen is in the topbar's space, which centre icons sit on, as TopbarPlus centres
-	--- them. A phone with a camera cutout on one side only has a safe area off the screen's middle.
+	--- Where the middle of the screen is in the topbar's space, which centre icons sit on. A phone with a camera cutout
+	--- on one side only has a safe area off the screen's middle.
 	local function screenMiddle(): number
 		if inset == nil then
 			return screenWidth() / 2

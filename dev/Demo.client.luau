@@ -1,6 +1,4 @@
---* TopbarPlus's playground demo (StarterGui.TestGUIs.EXAMPLES in its place) rebuilt with VideTopbar. Its dropdowns
---* are Roblox-style menus here, its sideways menu a row menu, and its Premium icon is Roblox Plus, which replaced
---* Premium; it shares a group with Mute.
+--* Every VideTopbar feature on the live topbar, to try in Play.
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,7 +7,6 @@ local UserInputService = game:GetService("UserInputService")
 local Vide = require(ReplicatedStorage.Packages.Vide)
 local VideTopbar = require(ReplicatedStorage.Packages.VideTopbar)
 
---* The image ids the TopbarPlus demo uses.
 local images = {
 	example = Content.fromAssetId(16086868244),
 	exampleSelected = Content.fromAssetId(16086868447),
@@ -50,7 +47,7 @@ local function say(text: string): () -> ()
 	end
 end
 
---* TopbarPlus's CustomInstance demo: the player's headshot with a status dot, added inside the icon.
+--* `leading` content: the player's headshot with a status dot.
 local function Avatar(isActive: () -> boolean): GuiObject
 	local player = Players.LocalPlayer
 	local holder = Instance.new("Frame")
@@ -94,7 +91,6 @@ Vide.root(function()
 			return if exampleSelected() then images.exampleSelected else images.example
 		end,
 		selected = exampleSelected,
-		--* TopbarPlus's default: another icon selected unselects this one.
 		autoDeselect = true,
 	})
 	VideTopbar.Icon({
@@ -104,7 +100,7 @@ Vide.root(function()
 			return Avatar(profileOpen)
 		end,
 		tooltip = "Your profile",
-		--* Only shown, like TopbarPlus's setCaptionHint: P is handled by the demo itself, at the bottom.
+		--* Only shown: P is handled by the demo itself, at the bottom.
 		shortcutHint = Enum.KeyCode.P,
 		selected = profileOpen,
 	})
@@ -123,7 +119,7 @@ Vide.root(function()
 		menu = function()
 			VideTopbar.Icon({ order = 1, icon = "photo-camera", label = "Captures", selected = capturing })
 			VideTopbar.Icon({ order = 2, icon = "trophy", label = "Leaderboard", selected = leaderboardOpen })
-			--* Not in the TopbarPlus demo: a row with a list of its own, which opens in place of this one.
+			--* A row with a list of its own, which opens in place of this one.
 			VideTopbar.Icon({
 				order = 3,
 				icon = "square-face-waving-hand",
@@ -154,7 +150,7 @@ Vide.root(function()
 				order = 6,
 				icon = "shopping-cart",
 				label = "Shop",
-				--* Not in the TopbarPlus demo: a text badge, like its setNoticeLabel, until the shop is first opened.
+				--* A text badge until the shop is first opened.
 				badge = function()
 					return if shopSeen() then nil else "NEW"
 				end,
@@ -166,7 +162,7 @@ Vide.root(function()
 			})
 		end,
 	})
-	--* Not in the TopbarPlus demo: VIP starts disabled, dimmed and deaf to V, until More's first row enables it.
+	--* VIP starts disabled, dimmed and deaf to V, until More's first row enables it.
 	VideTopbar.Icon({
 		order = 4,
 		icon = "crown",
@@ -176,7 +172,7 @@ Vide.root(function()
 		isDisabled = vipDisabled,
 		onActivated = say("vip"),
 	})
-	--* TopbarPlus's sideways menu, as a row menu: its icons slide out of the star, which turns into an x.
+	--* A row menu: its icons slide out of the star, which turns into an x.
 	VideTopbar.Icon({
 		order = 5,
 		icon = "star",
@@ -221,7 +217,7 @@ Vide.root(function()
 				MarketplaceService:PromptRobloxSubscriptionPurchase(Players.LocalPlayer)
 			end,
 		})
-		--* Not in the TopbarPlus demo: a menu behind Roblox's own hamburger glyph, which turns into an x while open.
+		--* A menu behind Roblox's own hamburger glyph, which turns into an x while open.
 		VideTopbar.Icon({
 			order = 4,
 			icon = "three-bars-horizontal",
@@ -278,8 +274,7 @@ Vide.root(function()
 		minWidth = 80,
 	})
 
-	--* Not in the TopbarPlus demo: = adds a filler icon, alternating sides, and - removes one, to crowd the bar until
-	--* its overflow menus appear.
+	--* = adds a filler icon, alternating sides, and - removes one, to crowd the bar until its overflow menus appear.
 	local fillerList = Vide.derive(function()
 		local list = {}
 		for index = 1, fillers() do

@@ -149,9 +149,8 @@ local function RowMenuView(
 		gamepad.openMenus[reveal] = nil
 	end)
 
-	--* Kaan's choice: a row stays open until its x is pressed, as TopbarPlus's sideways menus do, unless
-	--* `closeOnOutsideClick` asks for it. Then a click off the pill and off the lists its icons open closes it, armed a
-	--* frame after opening as a list's is.
+	--* Kaan's choice: a row stays open until its x is pressed, unless `closeOnOutsideClick` asks for it. Then a click
+	--* off the pill and off the lists its icons open closes it, armed a frame after opening as a list's is.
 	local function closesOnOutsideClick(): boolean
 		local value = props.closeOnOutsideClick
 		return (if type(value) == "function" then value() else value) == true

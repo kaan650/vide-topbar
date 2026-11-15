@@ -458,7 +458,7 @@ local function MenuView(props: MenuProps)
 				else rowHeight * fitting - half
 		end
 
-		--* Kaan's choice: centred under the icon, as TopbarPlus's dropdowns are, and kept inside the screen margin.
+		--* Kaan's choice: centred under the icon and kept inside the screen margin.
 		--* Roblox's own list starts at the topbar's left edge instead, since it belongs to the Unibar there.
 		local function position(): UDim2
 			local margin = tokens().Gap.Large

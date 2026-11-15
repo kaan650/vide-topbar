@@ -27,7 +27,7 @@ end
 
 --* Foundation turns AutoLocalize off on all it draws, as Roblox's own UI translates its strings itself, and a text is
 --* only translated when it and every ancestor have it on. The topbar shows the game's strings, so they are translated
---* like the rest of the game's UI, as TopbarPlus's are.
+--* like the rest of the game's UI.
 
 --- Turns automatic translation on for everything the topbar draws under `root`.
 local function useAutoLocalize(root: Instance)

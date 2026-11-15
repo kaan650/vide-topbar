@@ -53,8 +53,8 @@ export type Gamepad = {
 	iconToSelect: () -> GuiObject?,
 }
 
---- Gamepad support for a mounted topbar, as TopbarPlus has: `highlightKey` selects the icon last selected (or the
---- left-most), B steps back out of a menu and then off the topbar, and a mouse click lets go of the selection.
+--- Gamepad support for a mounted topbar: `highlightKey` selects the icon last selected (or the left-most), B steps
+--- back out of a menu and then off the topbar, and a mouse click lets go of the selection.
 --- `getRoot` returns the topbar's ScreenGui once it exists.
 local function useGamepad(getRoot: () -> Instance?, highlightKey: Enum.KeyCode?): Gamepad
 	local used = Vide.source(false)
@@ -145,7 +145,7 @@ local function useGamepad(getRoot: () -> Instance?, highlightKey: Enum.KeyCode?)
 		end
 	end)
 
-	--* As TopbarPlus does: a gamepad selection left on the topbar fights the mouse cursor.
+	--* A gamepad selection left on the topbar fights the mouse cursor.
 	Vide.cleanup(UserInputService.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 and selectionInside() then
 			GuiService.SelectedObject = nil

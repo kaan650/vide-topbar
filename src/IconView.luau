@@ -64,9 +64,9 @@ local function IconView(
 	local props = entry.props
 	local menuRows = entry.menu
 	local tokens = VideFoundation.Hooks.useTokens()
-	--* Roblox's gamepad cursor on topbar icons is Foundation's SkinToneCircle, a plain white ring (measured; TopbarPlus's
-	--* rotating gradient is its own). On the Unibar it rings the 36 px hit area, so a cell rings that circle inside
-	--* its 44 px; a round icon rings itself like Roblox's 44 px menu button.
+	--* Roblox's gamepad cursor on topbar icons is Foundation's SkinToneCircle, a plain white ring (measured). On the
+	--* Unibar it rings the 36 px hit area, so a cell rings that circle inside its 44 px; a round icon rings itself like
+	--* Roblox's 44 px menu button.
 	local cursor = VideFoundation.Hooks.useCursor(if variant == "Cell"
 		then function(): CursorConfig
 			local size = tokens().Size
@@ -191,8 +191,7 @@ local function IconView(
 	local menuSpring = menu.spring
 
 	local function hasBadge(): boolean?
-		--* An open menu shows its rows' own badges, so their sum on its icon goes, as TopbarPlus hides the notice of an
-		--* icon whose dropdown or menu is open.
+		--* An open menu shows its rows' own badges, so their sum on its icon goes.
 		if menuRows and menuOpen() then
 			return nil
 		end
@@ -319,8 +318,7 @@ local function IconView(
 		end
 	end
 
-	--- Whether `other` is one of this icon's own menu's icons, which a row menu keeps open for, as TopbarPlus turns
-	--- `autoDeselect` off for a menu's icon.
+	--- Whether `other` is one of this icon's own menu's icons, which a row menu stays open for.
 	local function isOwnRow(other: registry.IconEntry?): boolean
 		if menuRows == nil or other == nil then
 			return false
@@ -456,8 +454,7 @@ local function IconView(
 				return if menuOpen() and not rowMenu then Enum.SelectionBehavior.Escape else Enum.SelectionBehavior.Stop
 			end,
 		},
-		--* A locked icon takes no input either, so neither lights up when hovered; TopbarPlus hides a locked icon's click
-		--* region. Only the disabled one is dimmed.
+		--* A locked icon takes no input either, so neither lights up when hovered. Only the disabled one is dimmed.
 		isDisabled = function()
 			return isDisabled() or isLocked()
 		end,

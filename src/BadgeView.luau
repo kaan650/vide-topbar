@@ -36,8 +36,8 @@ export type BadgeViewProps = {
 	ZIndex: number?,
 }
 
---- A badge as Roblox draws one: a count or a dot in Foundation's emphasis StatusIndicator, and text, like TopbarPlus's
---- notice label, in a Badge of the same blue.
+--- A badge as Roblox draws one: a count or a dot in Foundation's emphasis StatusIndicator, and text in a Badge of the
+--- same blue.
 local function BadgeView(props: BadgeViewProps): GuiObject
 	local variant = VideFoundation.Enums.StatusIndicatorVariant.Emphasis
 
