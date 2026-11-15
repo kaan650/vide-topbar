@@ -3,7 +3,7 @@ local VideFoundation = require("./Packages/VideFoundation")
 
 type Value<T> = VideFoundation.Value<T>
 
---* Roblox's Unibar IconHost.lua caps badges at 99.
+--* Roblox's Unibar IconHost.lua caps badges at 99. Kaan's choice: a count past it reads 99+.
 local MAX_BADGE = 99
 
 export type Badge = number | boolean | string | nil
@@ -21,13 +21,16 @@ local function kindOf(value: Badge): BadgeKind?
 end
 
 local function countOf(value: Badge): number?
-	return if type(value) == "number" and value > 0 then math.min(value, MAX_BADGE) else nil
+	return if type(value) == "number" and value > 0 then value else nil
 end
 
 export type BadgeViewProps = {
 	value: () -> Badge,
 	--- Draws a dot inside a surface ring, as NineDotActivityIndicator does on an icon's corner.
 	ringed: boolean?,
+	--- Fades the whole badge, as a disabled icon or a closing list fades its content.
+	--! Foundation's badges take no transparency, so a badge given one is drawn in a CanvasGroup.
+	transparency: (() -> number)?,
 	Position: Value<UDim2>?,
 	LayoutOrder: number?,
 	ZIndex: number?,
@@ -35,10 +38,10 @@ export type BadgeViewProps = {
 
 --- A badge as Roblox draws one: a count or a dot in Foundation's emphasis StatusIndicator, and text, like TopbarPlus's
 --- notice label, in a Badge of the same blue.
-local function BadgeView(props: BadgeViewProps)
+local function BadgeView(props: BadgeViewProps): GuiObject
 	local variant = VideFoundation.Enums.StatusIndicatorVariant.Emphasis
 
-	return Vide.switch(function()
+	local badge = Vide.switch(function()
 		return kindOf(props.value())
 	end)({
 		Count = function()
@@ -46,26 +49,16 @@ local function BadgeView(props: BadgeViewProps)
 				value = function()
 					return countOf(props.value())
 				end,
+				max = MAX_BADGE,
 				variant = variant,
-				Position = props.Position,
-				LayoutOrder = props.LayoutOrder,
-				ZIndex = props.ZIndex,
 			})
 		end,
 		Dot = function()
 			if not props.ringed then
-				return VideFoundation.StatusIndicator({
-					variant = variant,
-					Position = props.Position,
-					LayoutOrder = props.LayoutOrder,
-					ZIndex = props.ZIndex,
-				})
+				return VideFoundation.StatusIndicator({ variant = variant })
 			end
 			return VideFoundation.View({
 				tag = "auto-xy padding-xxsmall radius-circle bg-surface-0",
-				Position = props.Position,
-				LayoutOrder = props.LayoutOrder,
-				ZIndex = props.ZIndex,
 				children = {
 					VideFoundation.StatusIndicator({ variant = variant }),
 				},
@@ -79,11 +72,17 @@ local function BadgeView(props: BadgeViewProps)
 				end,
 				variant = VideFoundation.Enums.BadgeVariant.Emphasis,
 				size = VideFoundation.Enums.BadgeSize.XSmall,
-				Position = props.Position,
-				LayoutOrder = props.LayoutOrder,
-				ZIndex = props.ZIndex,
 			})
 		end,
+	})
+
+	return VideFoundation.View({
+		tag = "auto-xy",
+		GroupTransparency = props.transparency,
+		Position = props.Position,
+		LayoutOrder = props.LayoutOrder,
+		ZIndex = props.ZIndex,
+		children = { badge },
 	})
 end
 

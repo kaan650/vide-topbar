@@ -35,8 +35,9 @@ export type IconProps = {
 	--- The icon is at least this wide, its content centred, like TopbarPlus's `setWidth`. Keeps a label that changes
 	--- (a counter, a timer) from moving the icons beside it.
 	minWidth: Value<number?>?,
-	--- A count, hidden at 0 and capped at 99 like Roblox's own, `true` for a dot, or text like TopbarPlus's
-	--- `setNoticeLabel`. Text shows in a pill and a menu row; a round icon shows it as the dot.
+	--- A count, hidden at 0 and shown as 99+ past 99, `true` for a dot, or text like TopbarPlus's
+	--- `setNoticeLabel`. Text shows in a pill and a menu row; a round icon shows it as the dot. Hidden while the icon's
+	--- menu is open, whose rows show their own.
 	badge: Value<number | boolean | string | nil>?,
 	--- Shown under the icon once the pointer rests on it, like Roblox's own topbar tooltips. Menu rows have none.
 	tooltip: Value<string?>?,

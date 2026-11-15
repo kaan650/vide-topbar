@@ -301,16 +301,12 @@ local function MenuRow(entry: registry.IconEntry, layoutOrder: () -> number, con
 				}),
 			}),
 			show(hasBadge, function()
-				--! Foundation's badges take no transparency, so the badge fades as a CanvasGroup.
-				return VideFoundation.View({
-					tag = "auto-xy",
-					LayoutOrder = 3,
-					GroupTransparency = function()
-						return 1 - transition()
+				return BadgeView.BadgeView({
+					value = badge,
+					transparency = function()
+						return fade(disabled.dimmed(0, isDisabled()))
 					end,
-					children = {
-						BadgeView.BadgeView({ value = badge }),
-					},
+					LayoutOrder = 3,
 				})
 			end),
 			show(opensPage, function()

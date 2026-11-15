@@ -12,7 +12,7 @@ local function holder(badge: any): GuiObject
 end
 
 return stage.part({
-	summary = "The badges on their own: a count (hidden at 0, capped at 99), a dot, the ringed dot on a round icon's "
+	summary = "The badges on their own: a count (hidden at 0, 99+ past 99), a dot, the ringed dot on a round icon's "
 		.. "corner, and text.",
 	controls = {
 		count = UILabs.Slider(5, 0, 150, 1),

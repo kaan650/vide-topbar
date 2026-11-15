@@ -4,8 +4,8 @@ local VideTopbar = require("@game/ReplicatedStorage/Packages/VideTopbar")
 local stage = require("./stage")
 
 return stage.topbar({
-	summary = "Each badge on each kind of icon: a count (capped at 99), a dot and text. Round icons show text as the "
-		.. "dot; a menu icon adds up its rows' badges.",
+	summary = "Each badge on each kind of icon: a count (99+ past 99), a dot and text. Round icons show text as the "
+		.. "dot; a menu icon adds up its rows' badges and hides them while its menu is open.",
 	controls = {
 		count = UILabs.Slider(3, 0, 150, 1),
 		text = "NEW",

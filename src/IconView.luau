@@ -191,11 +191,17 @@ local function IconView(
 	local menuSpring = menu.spring
 
 	local function hasBadge(): boolean?
-		--* An open row shows its icons' own badges, so their sum on its icon goes.
-		if rowMenu and menuOpen() then
+		--* An open menu shows its rows' own badges, so their sum on its icon goes, as TopbarPlus hides the notice of an
+		--* icon whose dropdown or menu is open.
+		if menuRows and menuOpen() then
 			return nil
 		end
 		return if BadgeView.kindOf(badge()) ~= nil then true else nil
+	end
+
+	--* A disabled icon dims its badge with its glyph and label.
+	local function badgeTransparency(): number
+		return disabled.dimmed(0, isDisabled())
 	end
 
 	local controlState = Vide.source(ControlState.Default :: VideFoundation.ControlState)
@@ -514,7 +520,7 @@ local function IconView(
 						return {
 							--* An empty item doubles the row gap between the label and the badge.
 							VideFoundation.View({ LayoutOrder = 5 }),
-							BadgeView.BadgeView({ value = badge, LayoutOrder = 6 }),
+							BadgeView.BadgeView({ value = badge, transparency = badgeTransparency, LayoutOrder = 6 }),
 						}
 					end),
 				},
@@ -532,6 +538,7 @@ local function IconView(
 						return if type(value) == "string" then true else value
 					end,
 					ringed = true,
+					transparency = badgeTransparency,
 					Position = function()
 						return UDim2.fromOffset(tokens().Gap.XXLarge + contentOffset(), BADGE_TOP)
 					end,
