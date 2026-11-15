@@ -6,9 +6,11 @@ local VideFoundation = require("./Packages/VideFoundation")
 local disabled = require("./Utility/disabled")
 local gamepad = require("./gamepad")
 local layers = require("./layers")
+local localize = require("./localize")
+local VideRipple = require("./Packages/VideRipple")
+local menuBadge = require("./Utility/menuBadge")
+local menuTransition = require("./menuTransition")
 local overflow = require("./overflow")
-local readBadge = require("./Utility/readBadge")
-local useMenuTransition = require("./menuTransition")
 local registry = require("./registry")
 local shortcuts = require("./shortcuts")
 local types = require("./types")
@@ -16,6 +18,7 @@ local useBackplate = require("./Utility/useBackplate")
 
 local show = Vide.show
 local ControlState = VideFoundation.Enums.ControlState
+local IconVariant = VideFoundation.Enums.IconVariant
 
 --* A corner badge sits 8 px from the top on Roblox's Unibar icons, measured live: IconHost reads it from UnibarStyle in
 --* CorePackages, which is not on disk.
@@ -31,18 +34,32 @@ type ColorStyle = useBackplate.ColorStyle
 --* Foundation's CursorConfig, which its package doesn't export.
 type CursorConfig = { radius: UDim?, offset: number?, borderWidth: number? }
 
+--- Whether an icon's menu is open and how far it has moved.
+export type MenuState = {
+	open: Vide.Source<boolean>,
+	transition: () -> number,
+	spring: VideRipple.Spring<number>,
+}
+
 local function withLayoutOrder(object: GuiObject, layoutOrder: number): GuiObject
 	object.LayoutOrder = layoutOrder
 	return object
 end
 
+local function ownMenu(open: Vide.Source<boolean>): MenuState
+	local transition, spring = menuTransition.useMenuTransition(open)
+	return { open = open, transition = transition, spring = spring }
+end
+
 --- An icon as the topbar draws it, inside the topbar's FoundationProvider. `overflowAnchor` returns the side's
---- overflow icon while this one is hidden in its menu, so this icon's own menu opens there instead.
+--- overflow icon while this one is hidden in its menu, so this icon's own menu opens there instead. `rowMenu` is the
+--- state of the row menu this icon opens, which RowMenuView draws around it.
 local function IconView(
 	entry: registry.IconEntry,
 	variant: Variant,
 	side: () -> types.Side,
-	overflowAnchor: (() -> GuiObject?)?
+	overflowAnchor: (() -> GuiObject?)?,
+	rowMenu: MenuState?
 ): GuiObject
 	local props = entry.props
 	local menuRows = entry.menu
@@ -81,26 +98,8 @@ local function IconView(
 		return if text == "" then nil else text
 	end
 
-	--* A menu icon adds up its rows' badges, as TopbarPlus does for its menus and dropdowns; Roblox shows a dot on its
-	--* ⋯ icon for activity inside, which a row's `true` or text badge gives here. The icon's own text wins.
 	local function badge(): BadgeView.Badge
-		local own = readBadge(props)
-		if menuRows == nil or type(own) == "string" then
-			return own
-		end
-		local count = if type(own) == "number" then math.max(own, 0) else 0
-		local dot = own == true
-		for _, row in menuRows.entries() do
-			if row.kind == "Icon" then
-				local rowBadge = readBadge(row.props)
-				if type(rowBadge) == "number" then
-					count += math.max(rowBadge, 0)
-				elseif BadgeView.kindOf(rowBadge) ~= nil then
-					dot = true
-				end
-			end
-		end
-		return if count > 0 then count elseif dot then true else nil
+		return menuBadge(props, menuRows)
 	end
 
 	local function imageScale(): number
@@ -181,16 +180,30 @@ local function IconView(
 		return selected ~= nil and selected()
 	end
 
+	--* CommonIcon draws an integration's glyph filled while it is active.
+	local function glyphVariant(): "Regular" | "Filled"
+		return if isSelected() then IconVariant.Filled else IconVariant.Regular
+	end
+
+	local menu = rowMenu or ownMenu(props.menuOpen or Vide.source(false))
+	local menuOpen = menu.open
+	local menuTransition = menu.transition
+	local menuSpring = menu.spring
+
 	local function hasBadge(): boolean?
+		--* An open row shows its icons' own badges, so their sum on its icon goes.
+		if rowMenu and menuOpen() then
+			return nil
+		end
 		return if BadgeView.kindOf(badge()) ~= nil then true else nil
 	end
 
 	local controlState = Vide.source(ControlState.Default :: VideFoundation.ControlState)
-	local menuOpen: Vide.Source<boolean> = props.menuOpen or Vide.source(false)
-	local menuTransition, menuSpring = useMenuTransition(menuOpen)
 
-	--* The 36 px circle Roblox draws behind a Unibar icon that is hovered, or whose window or menu is open. Its menu
-	--* button fades it in with the menu, as HamburgerButton does.
+	--* The 36 px circle Roblox draws behind a Unibar icon that is hovered, or whose window or menu is open. An open
+	--* menu's x sits on two of them: HamburgerButton's own fill, fading in with the menu, and IconHost's
+	--* SelectedHighlighter while its submenu is open; hovering adds IconHost's Highlighter. Measured on Roblox's open
+	--* ⋯ button, the circle is State.Hover laid on twice.
 	local function highlightStyle(): ColorStyle
 		local colors = tokens().Color.State
 		local current = controlState()
@@ -200,15 +213,20 @@ local function IconView(
 		end
 		--* IconHost lights the circle for a gamepad selection as for a hover.
 		local hovered = variant == "Cell" and (current == ControlState.Hover or current == ControlState.Selected)
-		local strength = if isSelected() or hovered then 1 else menuTransition()
-		return {
-			Color3 = colors.Hover.Color3,
-			Transparency = 1 - (1 - colors.Hover.Transparency) * strength,
-		}
+		local layer = 1 - colors.Hover.Transparency
+		local clear = if isSelected() or hovered then 1 - layer else 1
+		if menuRows then
+			clear *= 1 - layer * menuTransition()
+			if menuOpen() then
+				clear *= 1 - layer
+			end
+		end
+		return { Color3 = colors.Hover.Color3, Transparency = clear }
 	end
 
 	--* HamburgerButton shrinks its glyph out of a Size_900 frame and grows the x into a Size_700 one, each capped at
-	--* the glyph size.
+	--* the glyph size. Kaan's choice: only the glyph turns into the x, in its own slot. A label stays, so a labelled
+	--* icon keeps its width and its neighbours stay put; one with no glyph shows its open menu by its highlight alone.
 	local function glyphScale(): number
 		if not menuRows then
 			return glyphSize()
@@ -218,21 +236,6 @@ local function IconView(
 
 	local function closeScale(): number
 		return math.min(glyphSize(), tokens().Size.Size_700 * menuTransition())
-	end
-
-	--* Kaan's choice: a labelled menu icon narrows into the round x while its menu is open, as TopbarPlus's menus swap
-	--* their label for an X. Roblox has no labelled menu button to copy.
-	local function collapses(): boolean
-		return menuRows ~= nil and label() ~= nil
-	end
-
-	local function isCollapsing(): boolean
-		return collapses() and menuTransition() > 0
-	end
-
-	--- How far the content has faded out: fully by the time the icon is half way to the x.
-	local function contentFade(): number
-		return if collapses() then math.min(1, menuTransition() * 2) else 0
 	end
 
 	local naturalWidth = Vide.source(0)
@@ -310,6 +313,20 @@ local function IconView(
 		end
 	end
 
+	--- Whether `other` is one of this icon's own menu's icons, which a row menu keeps open for, as TopbarPlus turns
+	--- `autoDeselect` off for a menu's icon.
+	local function isOwnRow(other: registry.IconEntry?): boolean
+		if menuRows == nil or other == nil then
+			return false
+		end
+		for _, row in Vide.untrack(menuRows.entries) do
+			if row == other then
+				return true
+			end
+		end
+		return false
+	end
+
 	--* `autoDeselect` reacts to selections made after the icon was added, not to whatever was selected before it.
 	local getLatestSelection: () -> registry.IconEntry? = registry.latestSelection
 	local seenSelection = Vide.untrack(getLatestSelection)
@@ -319,7 +336,7 @@ local function IconView(
 			return
 		end
 		seenSelection = latest
-		if latest == entry or not Vide.untrack(autoDeselect) then
+		if latest == entry or not Vide.untrack(autoDeselect) or isOwnRow(latest) then
 			return
 		end
 		local selected = props.selected
@@ -363,6 +380,7 @@ local function IconView(
 					return VideFoundation.Icon({
 						name = name,
 						style = glyphStyle,
+						variant = glyphVariant,
 						size = glyphScale,
 						AnchorPoint = anchor,
 						Position = center,
@@ -385,6 +403,16 @@ local function IconView(
 						end,
 					})
 				end),
+				if menuRows
+					then VideFoundation.Icon({
+						name = "x",
+						style = glyphStyle,
+						size = closeScale,
+						AnchorPoint = anchor,
+						Position = center,
+						ZIndex = 2,
+					})
+					else nil,
 			},
 		})
 	end)
@@ -395,26 +423,19 @@ local function IconView(
 	end
 
 	local button = VideFoundation.View({
-		--* A pill sizes itself to its content while settled. A narrowing pill animates its width instead, and a round
-		--* icon is sized from the measured content row: automatic size also counts the corner badge, which would
-		--* widen the icon wherever it reached past the 44 px cell.
+		--* A pill sizes itself to its content, and a round icon is sized from the measured content row: automatic size
+		--* also counts the corner badge, which would widen the icon wherever it reached past the 44 px cell.
 		tag = function()
-			return if isPill() and not isCollapsing() then "radius-circle auto-x" else "radius-circle"
+			return if isPill() then "radius-circle auto-x" else "radius-circle"
 		end,
 		Size = function()
 			local size = buttonSize()
-			if isCollapsing() then
-				local resting = math.max(naturalWidth(), minWidth())
-				local width = resting + (size - resting) * menuTransition()
-				return UDim2.fromOffset(math.max(width, size), size)
-			end
 			local width = math.max(size, minWidth())
 			if not isPill() then
 				width = math.max(width, naturalWidth())
 			end
 			return UDim2.fromOffset(width, size)
 		end,
-		ClipsDescendants = collapses,
 		LayoutOrder = props.order,
 		backgroundStyle = if variant == "Standalone" then backplate else nil,
 		stateLayer = if variant == "Cell" then { affordance = VideFoundation.Enums.StateLayerAffordance.None } else nil,
@@ -426,10 +447,14 @@ local function IconView(
 		selectionGroup = {
 			SelectionBehaviorUp = Enum.SelectionBehavior.Stop,
 			SelectionBehaviorDown = function()
-				return if menuOpen() then Enum.SelectionBehavior.Escape else Enum.SelectionBehavior.Stop
+				return if menuOpen() and not rowMenu then Enum.SelectionBehavior.Escape else Enum.SelectionBehavior.Stop
 			end,
 		},
-		isDisabled = props.isDisabled,
+		--* A locked icon takes no input either, so neither lights up when hovered; TopbarPlus hides a locked icon's click
+		--* region. Only the disabled one is dimmed.
+		isDisabled = function()
+			return isDisabled() or isLocked()
+		end,
 		onActivated = activate,
 		onStateChanged = onStateChanged,
 		children = {
@@ -464,7 +489,7 @@ local function IconView(
 					end,
 				},
 				children = {
-					if props.leading then withLayoutOrder(props.leading(), 1) else nil,
+					if props.leading then withLayoutOrder(localize.markCustom(props.leading()), 1) else nil,
 					glyphSlot,
 					show(label, function(text)
 						return VideFoundation.Text({
@@ -472,16 +497,15 @@ local function IconView(
 							tag = "auto-xy text-title-medium",
 							textStyle = function(): ColorStyle
 								local emphasis = tokens().Color.Content.Emphasis
-								local transparency = disabled.dimmed(emphasis.Transparency, isDisabled())
 								return {
 									Color3 = emphasis.Color3,
-									Transparency = transparency + (1 - transparency) * contentFade(),
+									Transparency = disabled.dimmed(emphasis.Transparency, isDisabled()),
 								}
 							end,
 							LayoutOrder = 3,
 						})
 					end),
-					if props.trailing then withLayoutOrder(props.trailing(), 4) else nil,
+					if props.trailing then withLayoutOrder(localize.markCustom(props.trailing()), 4) else nil,
 					--* In a pill the badge trails the content, as Unibar's MenuTrailingBadge does in menu rows; on the
 					--* glyph's corner it would cover the label's first letter.
 					show(function()
@@ -490,19 +514,7 @@ local function IconView(
 						return {
 							--* An empty item doubles the row gap between the label and the badge.
 							VideFoundation.View({ LayoutOrder = 5 }),
-							--* A narrowing pill fades its badge with the label, so the badge counts in the width it
-							--* narrows from and comes back with it.
-							--! Foundation's badges take no transparency, so the badge fades as a CanvasGroup.
-							if menuRows and props.label ~= nil
-								then VideFoundation.View({
-									tag = "auto-xy",
-									LayoutOrder = 6,
-									GroupTransparency = contentFade,
-									children = {
-										BadgeView.BadgeView({ value = badge }),
-									},
-								})
-								else BadgeView.BadgeView({ value = badge, LayoutOrder = 6 }),
+							BadgeView.BadgeView({ value = badge, LayoutOrder = 6 }),
 						}
 					end),
 				},
@@ -526,24 +538,10 @@ local function IconView(
 					ZIndex = 3,
 				})
 			end),
-			if menuRows
-				then VideFoundation.Icon({
-					name = "x",
-					style = glyphStyle,
-					size = closeScale,
-					AnchorPoint = Vector2.new(0.5, 0.5),
-					Position = UDim2.fromScale(0.5, 0.5),
-					ZIndex = 2,
-				})
-				else nil,
 		},
 	})
 
 	button:SetAttribute(gamepad.ICON_ATTRIBUTE, true)
-	--* A locked icon takes no input at all, so it doesn't light up either, as TopbarPlus hides its click region.
-	Vide.effect(function()
-		button.Interactable = not isLocked()
-	end)
 	Vide.effect(function()
 		button:SetAttribute(overflow.RESTING_WIDTH_ATTRIBUTE, math.max(naturalWidth(), minWidth(), buttonSize()))
 	end)
@@ -563,24 +561,20 @@ local function IconView(
 		})
 	end
 
-	if menuRows then
+	if menuRows and not rowMenu then
 		local function close()
 			menuOpen(false)
 		end
+		local menuPath = Vide.source({} :: { registry.IconEntry })
 
 		if menuLayer then
 			local function anchor(): GuiObject
 				return if overflowAnchor then overflowAnchor() or button else button
 			end
 
-			--- Where the list centres: on what it opens under, or on the round x a labelled icon narrows into. That x
-			--- ends up at the edge its side's holder is anchored to; in the centre holder it drifts by half the narrowing.
+			--- Where the list centres: on what it opens under.
 			local function centerX(position: Vector2, extent: Vector2): number
-				if anchor() ~= button or not collapses() then
-					return position.X + extent.X / 2
-				end
-				local half = buttonSize() / 2
-				return if side() == "Right" then position.X + extent.X - half else position.X + half
+				return position.X + extent.X / 2
 			end
 
 			MenuView.MenuView({
@@ -593,24 +587,44 @@ local function IconView(
 				spring = menuSpring,
 				closeOnOutsideClick = closeOnOutsideClick,
 				close = close,
+				path = menuPath,
 			})
 		end
 
-		--* Rows' shortcuts work while the menu is closed too, for as long as the icon is on the topbar. An overflow
-		--* menu's rows are icons that bind their own.
-		Vide.indexes(registry.entriesOf(menuRows), function(rowEntry: () -> registry.Entry): nil
-			local row = rowEntry()
-			if row.kind == "Icon" and not entry.isOverflow then
+		--* Rows' shortcuts work while the menu is closed too, for as long as the icon is on the topbar, at every depth:
+		--* a row with a list of its own opens the menu straight onto it.
+		local function bindShortcuts(rows: registry.Container, path: { registry.IconEntry })
+			Vide.indexes(registry.entriesOf(rows), function(rowEntry: () -> registry.Entry): nil
+				local row = rowEntry()
+				if row.kind ~= "Icon" then
+					return nil
+				end
 				local rowProps = row.props
+				local subRows = row.menu
+				local rowPath = table.clone(path)
+				table.insert(rowPath, row)
 				shortcuts.useShortcut(function()
 					local value = rowProps.shortcut
 					return if type(value) == "function" then value() else value
 				end, function()
-					MenuView.activateRow(rowProps, close)
+					if subRows == nil then
+						MenuView.activateRow(rowProps, close)
+					elseif MenuView.canPress(rowProps) then
+						menuPath(rowPath)
+						menuOpen(true)
+						registry.latestSelection(entry)
+					end
 				end)
-			end
-			return nil
-		end)
+				if subRows then
+					bindShortcuts(subRows, rowPath)
+				end
+				return nil
+			end)
+		end
+		--* An overflow menu's rows are icons that bind their own.
+		if not entry.isOverflow then
+			bindShortcuts(menuRows, {})
+		end
 	end
 
 	return button

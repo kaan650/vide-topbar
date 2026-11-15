@@ -7,8 +7,10 @@ local BadgeView = require("./BadgeView")
 local VideRipple = require("./Packages/VideRipple")
 local create = require("./Utility/create")
 local disabled = require("./Utility/disabled")
-local readBadge = require("./Utility/readBadge")
 local gamepad = require("./gamepad")
+local isPointOn = require("./Utility/isPointOn")
+local menuBadge = require("./Utility/menuBadge")
+local menuTransition = require("./menuTransition")
 local overflow = require("./overflow")
 local registry = require("./registry")
 local trackAbsolute = require("./Utility/trackAbsolute")
@@ -17,6 +19,7 @@ local useBackplate = require("./Utility/useBackplate")
 
 local show = Vide.show
 local ControlState = VideFoundation.Enums.ControlState
+local IconVariant = VideFoundation.Enums.IconVariant
 
 --* Roblox's ⋯ menu is the Unibar's SubMenu (Chrome/ChromeShared/Unibar/SubMenu.lua): four icon cells wide plus the
 --* Unibar's left margin and end padding, rows of Size_1400. The 8 px gap under the bar and the 8 px corners were
@@ -25,6 +28,11 @@ local ControlState = VideFoundation.Enums.ControlState
 type ColorStyle = useBackplate.ColorStyle
 
 local CLEAR: ColorStyle = { Color3 = Color3.new(0, 0, 0), Transparency = 1 }
+--* Kaan's choice: a row's own list opens in place, with a row back at the top; Roblox's SubMenu has none to copy.
+local OPENS_PAGE_ICON = "chevron-small-right"
+local BACK_ICON = "chevron-small-left"
+--* Above every row's LayoutOrder, which is an int32.
+local BACK_ORDER = -2 ^ 31
 
 export type MenuProps = {
 	rows: registry.Container,
@@ -39,6 +47,17 @@ export type MenuProps = {
 	spring: VideRipple.Spring<number>,
 	closeOnOutsideClick: () -> boolean,
 	close: () -> (),
+	--- The rows whose own lists are open in place of this one, deepest last. Emptied once the list has closed.
+	path: Vide.Source<{ registry.IconEntry }>,
+}
+
+--- What a row needs from its list.
+type RowContext = {
+	isOpen: () -> boolean,
+	transition: () -> number,
+	--- Whether pressing the row opens its own list in place of this one.
+	opensPage: (entry: registry.IconEntry) -> boolean,
+	press: (entry: registry.IconEntry) -> (),
 }
 
 local function isLocked(props: types.IconProps): boolean
@@ -46,10 +65,15 @@ local function isLocked(props: types.IconProps): boolean
 	return (if type(value) == "function" then value() else value) == true
 end
 
+--- Whether a row takes presses, from the list or from its shortcut.
+local function canPress(props: types.IconProps): boolean
+	return not isLocked(props) and not disabled.isDisabled(props)
+end
+
 --- What pressing a row does, from the list or from its shortcut. The menu closes either way, as Roblox's closes on
 --- any click.
 local function activateRow(props: types.IconProps, close: () -> ())
-	if isLocked(props) or disabled.isDisabled(props) then
+	if not canPress(props) then
 		return
 	end
 	close()
@@ -62,17 +86,25 @@ local function activateRow(props: types.IconProps, close: () -> ())
 	end
 end
 
+--* Roblox's ⋯ menu names a row with its integration's label, which the icon's tooltip shows too, so an icon with
+--* only a tooltip, as a bar icon often has, is named by it in a list.
+local function labelOf(props: types.IconProps): string
+	local label = props.label
+	local text = if type(label) == "function" then label() else label
+	if text == nil or text == "" then
+		local tooltip = props.tooltip
+		text = if type(tooltip) == "function" then tooltip() else tooltip
+	end
+	return text or ""
+end
+
 --- A row as SubMenu's MenuRow draws it: the icon in its cell, the label filling the rest, a badge trailing it.
-local function MenuRow(
-	entry: registry.IconEntry,
-	layoutOrder: () -> number,
-	close: () -> (),
-	transition: () -> number
-): GuiObject
+local function MenuRow(entry: registry.IconEntry, layoutOrder: () -> number, context: RowContext): GuiObject
 	local props = entry.props
 	local tokens = VideFoundation.Hooks.useTokens()
 	local cursor = VideFoundation.Hooks.useCursor(VideFoundation.Enums.CursorType.RoundedSlot)
 	local state = Vide.source(ControlState.Default :: VideFoundation.ControlState)
+	local transition = context.transition
 
 	local function iconName(): string?
 		local value = props.icon
@@ -85,16 +117,19 @@ local function MenuRow(
 	end
 
 	local function label(): string
-		local value = props.label
-		return (if type(value) == "function" then value() else value) or ""
+		return labelOf(props)
 	end
 
 	local function badge(): BadgeView.Badge
-		return readBadge(props)
+		return menuBadge(props, entry.menu)
 	end
 
 	local function hasBadge(): boolean?
 		return if BadgeView.kindOf(badge()) ~= nil then true else nil
+	end
+
+	local function opensPage(): boolean?
+		return if context.opensPage(entry) then true else nil
 	end
 
 	local function imageSize(): Vector2
@@ -142,6 +177,15 @@ local function MenuRow(
 		return faded({ Color3 = emphasis.Color3, Transparency = disabled.dimmed(emphasis.Transparency, isDisabled()) })
 	end
 
+	--* CommonIcon draws an integration's glyph filled while it is active, in a row as on the bar.
+	local function glyphVariant(): "Regular" | "Filled"
+		return if isSelected() then IconVariant.Filled else IconVariant.Regular
+	end
+
+	local function glyphSize(): number
+		return tokens().Size.Size_600
+	end
+
 	return VideFoundation.View({
 		tag = "radius-medium row align-y-center gap-small",
 		Size = function()
@@ -162,21 +206,16 @@ local function MenuRow(
 			Selectable = true,
 			SelectionImageObject = cursor,
 		},
-		isDisabled = props.isDisabled,
+		--* A closing list takes no more presses: with reduced motion it fades where it stands, and clicking a row
+		--* again during the fade pressed it again.
+		isDisabled = function()
+			return not context.isOpen() or isDisabled()
+		end,
 		onStateChanged = function(newState: VideFoundation.ControlState)
 			state(newState)
 		end,
 		onActivated = function()
-			--* An overflowed icon's row presses the hidden icon, so its toggle, its menu and its tooltip state behave
-			--* as on the bar.
-			local hidden = entry.overflowOf
-			local activateHidden = if hidden then registry.activators[hidden] else nil
-			if activateHidden then
-				close()
-				activateHidden()
-			else
-				activateRow(props, close)
-			end
+			context.press(entry)
 		end,
 		children = {
 			show(hasGlyph, function()
@@ -205,9 +244,8 @@ local function MenuRow(
 							return VideFoundation.Icon({
 								name = name,
 								style = glyphStyle,
-								size = function()
-									return tokens().Size.Size_600
-								end,
+								variant = glyphVariant,
+								size = glyphSize,
 								AnchorPoint = anchor,
 								Position = center,
 							})
@@ -275,20 +313,31 @@ local function MenuRow(
 					},
 				})
 			end),
+			show(opensPage, function()
+				return VideFoundation.Icon({
+					name = OPENS_PAGE_ICON,
+					style = glyphStyle,
+					size = glyphSize,
+					LayoutOrder = 4,
+				})
+			end),
 		},
 	})
 end
 
---- The list an icon's `menu` opens, drawn into `layer` under `anchor` while `isOpen`.
+--- The list an icon's `menu` opens, drawn into `layer` under `anchor` while `isOpen`. A row with a menu of its own
+--- opens it in place of the list, which slides over to it.
 local function MenuView(props: MenuProps)
 	local tokens = VideFoundation.Hooks.useTokens()
 	local preferences = VideFoundation.Hooks.usePreferences()
 	local backplate = useBackplate()
 	local layerPosition, layerSize = trackAbsolute(props.layer)
+	local path = props.path
+	local getPath: () -> { registry.IconEntry } = path
 
-	local function rowCount(): number
+	local function rowCount(rows: registry.Container): number
 		local count = 0
-		for _, entry in props.rows.entries() do
+		for _, entry in rows.entries() do
 			if entry.kind == "Icon" then
 				count += 1
 			end
@@ -302,6 +351,13 @@ local function MenuView(props: MenuProps)
 		return size.Size_1100 * 4 + padding.Small + padding.XSmall * 2
 	end
 
+	--* An overflowed icon with a list still opens it under the ⋯, as it would on the bar. A row menu can't open
+	--* sideways from inside a list, so its icons come in as a page.
+	local function opensPage(entry: registry.IconEntry): boolean
+		local rows = entry.menu
+		return rows ~= nil and (entry.overflowOf == nil or rows.style == "Row")
+	end
+
 	--* One list per icon, as SubMenuHost has one menuTransition: pressing the icon again mid-animation turns the same
 	--* list around instead of starting a new one, and the list is removed once it has fully closed.
 	local transition = props.transition
@@ -313,6 +369,7 @@ local function MenuView(props: MenuProps)
 		task.defer(function()
 			if not props.isOpen() then
 				mounted(false)
+				path({})
 			end
 		end)
 	end
@@ -359,14 +416,8 @@ local function MenuView(props: MenuProps)
 
 		local list: GuiObject? = nil
 
-		--* Input positions are in AbsolutePosition's space, as Foundation's isPointInGuiObjectBounds compares them.
 		local function isOnList(position: Vector2): boolean
-			if list == nil then
-				return false
-			end
-			local offset = position - list.AbsolutePosition
-			local size = list.AbsoluteSize
-			return offset.X >= 0 and offset.Y >= 0 and offset.X <= size.X and offset.Y <= size.Y
+			return list ~= nil and isPointOn(list, position)
 		end
 
 		local function closeFromOutside(position: Vector2)
@@ -397,9 +448,9 @@ local function MenuView(props: MenuProps)
 
 		--* SubMenu keeps the topbar's height and an icon cell free under the list (here from the anchor's bottom, 2 px
 		--* off), and when the rows don't fit it cuts the last one in half so the list reads as scrollable.
-		local function fullHeight(): number
+		local function fullHeight(count: number): number
 			local rowHeight = tokens().Size.Size_1400
-			local canvas = rowHeight * rowCount()
+			local canvas = rowHeight * count
 			local available = layerSize().Y - anchorBottom() - tokens().Size.Size_1100
 			if canvas <= available then
 				return canvas
@@ -420,17 +471,206 @@ local function MenuView(props: MenuProps)
 			return UDim2.fromOffset(x, anchorBottom() + tokens().Gap.Small)
 		end
 
+		--- The page the list is on, sliding between whole pages: 0 is the menu's own rows, n the nth row opened.
+		local page, pageSpring = VideRipple.useSpring(#Vide.untrack(getPath), menuTransition.SPRING)
+		--- The rows whose pages are drawn: the open ones, and one being left until the slide back to its parent ends.
+		local drawn = Vide.source(Vide.untrack(getPath))
+		local getDrawn: () -> { registry.IconEntry } = drawn
+
+		Vide.effect(function()
+			local current = getPath()
+			local reducedMotion = preferences().reducedMotion
+			Vide.untrack(function()
+				local shown = getDrawn()
+				local leaving = #current < #shown
+				for index, entry in current do
+					if shown[index] ~= entry then
+						leaving = false
+						break
+					end
+				end
+				if not leaving or reducedMotion then
+					drawn(current)
+				end
+				pageSpring:setGoal(#current)
+				if reducedMotion then
+					pageSpring:setPosition(#current)
+				end
+				return nil
+			end)
+		end)
+		Vide.cleanup(pageSpring:onComplete(function()
+			task.defer(function()
+				drawn(Vide.untrack(getPath))
+			end)
+		end))
+
+		local function rowsAt(depth: number): registry.Container
+			local entry = getDrawn()[depth]
+			return if entry and entry.menu then entry.menu else props.rows
+		end
+
+		local function pageHeight(depth: number): number
+			return fullHeight(rowCount(rowsAt(depth)) + (if depth > 0 then 1 else 0))
+		end
+
+		--* The list's height moves between two pages' as it slides from one to the other.
+		local function height(): number
+			local at = math.clamp(page(), 0, #getDrawn())
+			local low = math.floor(at)
+			local high = math.ceil(at)
+			return pageHeight(low) + (pageHeight(high) - pageHeight(low)) * (at - low)
+		end
+
+		local rowViews = setmetatable({}, { __mode = "k" }) :: { [registry.IconEntry]: GuiObject }
+		local backViews = setmetatable({}, { __mode = "k" }) :: { [registry.IconEntry]: GuiObject }
+		local backRows = setmetatable({}, { __mode = "k" }) :: { [registry.IconEntry]: boolean }
+
+		--* SubMenu with a gamepad keeps the selection in the list, so a page change moves it onto the new page.
+		local function selectLater(target: () -> GuiObject?)
+			if list == nil or not gamepad.isInside(GuiService.SelectedObject, list) then
+				return
+			end
+			task.defer(function()
+				local view = target()
+				if view and view.Parent then
+					GuiService.SelectedObject = view
+				end
+			end)
+		end
+
+		local function push(entry: registry.IconEntry)
+			local nextPath = table.clone(Vide.untrack(getPath))
+			table.insert(nextPath, entry)
+			path(nextPath)
+			selectLater(function()
+				return backViews[entry]
+			end)
+		end
+
+		local function pop(): boolean
+			local current = Vide.untrack(getPath)
+			local left = current[#current]
+			if left == nil then
+				return false
+			end
+			local nextPath = table.clone(current)
+			table.remove(nextPath)
+			path(nextPath)
+			selectLater(function()
+				return rowViews[left]
+			end)
+			return true
+		end
+
+		local function press(entry: registry.IconEntry)
+			if backRows[entry] then
+				pop()
+			elseif opensPage(entry) then
+				if canPress(entry.props) then
+					push(entry)
+				end
+			else
+				--* An overflowed icon's row presses the hidden icon, so its toggle, its menu and its tooltip state
+				--* behave as on the bar.
+				local hidden = entry.overflowOf
+				local activateHidden = if hidden then registry.activators[hidden] else nil
+				if activateHidden then
+					props.close()
+					activateHidden()
+				else
+					activateRow(entry.props, props.close)
+				end
+			end
+		end
+
+		local context: RowContext = {
+			isOpen = props.isOpen,
+			transition = transition,
+			opensPage = opensPage,
+			press = press,
+		}
+
+		local function Page(rows: registry.Container, parent: registry.IconEntry?, index: () -> number): GuiObject
+			local back: GuiObject? = nil
+			if parent then
+				local backEntry: registry.IconEntry = {
+					kind = "Icon",
+					props = {
+						icon = BACK_ICON,
+						label = function()
+							return labelOf(parent.props)
+						end,
+					},
+				}
+				backRows[backEntry] = true
+				back = MenuRow(backEntry, function()
+					return BACK_ORDER
+				end, context)
+				backViews[parent] = back
+			end
+
+			local function count(): number
+				return rowCount(rows) + (if parent then 1 else 0)
+			end
+
+			return create("ScrollingFrame")({
+				Name = "Page",
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				Position = function()
+					return UDim2.fromOffset((index() - page()) * width(), 0)
+				end,
+				Size = function()
+					return UDim2.fromOffset(width(), fullHeight(count()))
+				end,
+				--* Pages off to the side stay out of a gamepad's reach.
+				Visible = function()
+					return math.abs(index() - page()) < 1
+				end,
+				CanvasSize = function()
+					return UDim2.fromOffset(0, tokens().Size.Size_1400 * count())
+				end,
+				ScrollBarThickness = 0,
+				ScrollingDirection = Enum.ScrollingDirection.Y,
+				Selectable = false,
+				create("UIListLayout")({
+					FillDirection = Enum.FillDirection.Vertical,
+					SortOrder = Enum.SortOrder.LayoutOrder,
+				}),
+				back,
+				Vide.indexes(registry.entriesOf(rows), function(entry: () -> registry.Entry): GuiObject?
+					local row = entry()
+					if row.kind ~= "Icon" then
+						return nil
+					end
+					--* An overflow menu's rows are rebuilt as icons come and go, which can move a row; its order is
+					--* read live.
+					local function layoutOrder(): number
+						local current = entry()
+						return if current.kind == "Icon"
+							then current.rowOrder or overflow.readOrder(current.props)
+							else 0
+					end
+					local view = MenuRow(row, layoutOrder, context)
+					rowViews[row] = view
+					return view
+				end),
+			})
+		end
+
 		local frame = VideFoundation.View({
 			tag = "radius-medium",
 			--* SubMenu stops a gamepad at its bottom row.
 			selectionGroup = { SelectionBehaviorDown = Enum.SelectionBehavior.Stop },
 			Position = position,
 			Size = function()
-				local height = fullHeight()
+				local full = height()
 				--* SubMenu grows the list from the top, except with reduced motion.
-				local shown = if preferences().reducedMotion then height else height * transition()
+				local shown = if preferences().reducedMotion then full else full * transition()
 				return UDim2.fromOffset(width(), shown)
 			end,
+			ClipsDescendants = true,
 			backgroundStyle = function(): ColorStyle
 				local fill = backplate()
 				local transparency = fill.Transparency or 0
@@ -440,37 +680,12 @@ local function MenuView(props: MenuProps)
 				}
 			end,
 			children = {
-				create("ScrollingFrame")({
-					Name = "Rows",
-					BackgroundTransparency = 1,
-					BorderSizePixel = 0,
-					Size = UDim2.fromScale(1, 1),
-					CanvasSize = function()
-						return UDim2.fromOffset(0, tokens().Size.Size_1400 * rowCount())
-					end,
-					ScrollBarThickness = 0,
-					ScrollingDirection = Enum.ScrollingDirection.Y,
-					Selectable = false,
-					create("UIListLayout")({
-						FillDirection = Enum.FillDirection.Vertical,
-						SortOrder = Enum.SortOrder.LayoutOrder,
-					}),
-					Vide.indexes(registry.entriesOf(props.rows), function(entry: () -> registry.Entry): GuiObject?
-						local row = entry()
-						if row.kind ~= "Icon" then
-							return nil
-						end
-						--* An overflow menu's rows are rebuilt as icons come and go, which can move a row; its order is
-						--* read live.
-						local function layoutOrder(): number
-							local current = entry()
-							return if current.kind == "Icon"
-								then current.rowOrder or overflow.readOrder(current.props)
-								else 0
-						end
-						return MenuRow(row, layoutOrder, props.close, transition)
-					end),
-				}),
+				Page(props.rows, nil, function()
+					return 0
+				end),
+				Vide.values(getDrawn, function(parent: registry.IconEntry, index: () -> number): GuiObject
+					return Page(parent.menu :: registry.Container, parent, index)
+				end),
 			},
 		})
 		frame.Name = "VideTopbarMenu"
@@ -479,8 +694,9 @@ local function MenuView(props: MenuProps)
 		Vide.cleanup(frame)
 
 		--* SubMenu with a gamepad: opening the menu from a selected icon moves the selection into the list, and pressing
-		--* a row lets go of it (MenuRow's onMenuRowActivated). B is handled with the topbar's other gamepad input.
-		gamepad.openMenus[frame] = { close = props.close, trigger = trigger }
+		--* a row lets go of it (MenuRow's onMenuRowActivated). B is handled with the topbar's other gamepad input; it
+		--* leaves a page before it closes the menu.
+		gamepad.openMenus[frame] = { close = props.close, trigger = trigger, back = pop }
 		Vide.cleanup(function()
 			gamepad.openMenus[frame] = nil
 		end)
@@ -504,5 +720,6 @@ end
 
 return {
 	activateRow = activateRow,
+	canPress = canPress,
 	MenuView = MenuView,
 }

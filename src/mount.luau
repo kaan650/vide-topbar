@@ -4,11 +4,13 @@ local UserInputService = game:GetService("UserInputService")
 
 local GroupView = require("./GroupView")
 local IconView = require("./IconView")
+local RowMenuView = require("./RowMenuView")
 local Vide = require("./Packages/Vide")
 local VideFoundation = require("./Packages/VideFoundation")
 local create = require("./Utility/create")
 local gamepad = require("./gamepad")
 local layers = require("./layers")
+local localize = require("./localize")
 local overflow = require("./overflow")
 local registry = require("./registry")
 local shortcuts = require("./shortcuts")
@@ -63,6 +65,10 @@ end
 
 local function EntryView(entry: Entry, side: () -> Side, overflowAnchor: () -> GuiObject?): GuiObject?
 	if entry.kind == "Icon" then
+		local menu = entry.menu
+		if menu and menu.style == "Row" then
+			return RowMenuView(entry, side, overflowAnchor)
+		end
 		return IconView(entry, "Standalone", side, overflowAnchor)
 	elseif entry.kind == "Group" then
 		return GroupView(entry, side, overflowAnchor)
@@ -255,7 +261,6 @@ local function GamepadHint(
 end
 
 --- The three holders. Without an inset (a story) the free area is the whole target.
---? TopbarInset may not account for a phone's notch; check in the device emulator.
 local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlightKey: Enum.KeyCode?): { GuiObject }
 	local tokens = VideFoundation.Hooks.useTokens()
 
@@ -287,6 +292,20 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 		return screenSize().X
 	end
 	local healthBarWidth = if inset then useHealthBarWidth(screenWidth) else nil
+
+	--- Where the middle of the screen is in the topbar's space, which centre icons sit on, as TopbarPlus centres
+	--- them. A phone with a camera cutout on one side only has a safe area off the screen's middle.
+	local function screenMiddle(): number
+		if inset == nil then
+			return screenWidth() / 2
+		end
+		--* GetInsetArea has no changed signal; it is read again as the screen turns or Roblox's topbar changes.
+		screenSize()
+		inset()
+		local screen = GuiService:GetInsetArea(Enum.ScreenInsets.None)
+		local safe = GuiService:GetInsetArea(Enum.ScreenInsets.DeviceSafeInsets)
+		return (screen.Min.X + screen.Max.X) / 2 - safe.Min.X
+	end
 
 	if inset then
 		GamepadHint(tooltips, highlightKey, gamepad.useGamepad(getRoot, highlightKey), getRoot, isReady)
@@ -353,7 +372,7 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 			right = items("Right"),
 			leftStart = leftStart(),
 			rightEnd = rightEnd(),
-			screenWidth = screenWidth(),
+			screenMiddle = screenMiddle(),
 			gap = tokens().Padding.Small,
 			overflowWidth = tokens().Size.Size_1100,
 		})
@@ -424,8 +443,8 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 						return nil
 					end
 
-					--* An icon reports the width it rests at, so a labelled menu icon narrowing into its x doesn't
-					--* reshuffle the overflow while its menu is open.
+					--* A view reports the width it is heading for, so a row menu sliding open or shut reshuffles the
+					--* overflow once rather than on every frame of it.
 					local function measure()
 						local resting = view:GetAttribute(RESTING_WIDTH_ATTRIBUTE)
 						setWidth(id, if type(resting) == "number" then resting else view.AbsoluteSize.X)
@@ -456,7 +475,7 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 					return UDim2.fromOffset(leftStart(), top())
 				end),
 				holder("Center", Vector2.new(0.5, 0), function()
-					return UDim2.new(0.5, 0, 0, top())
+					return UDim2.fromOffset(screenMiddle(), top())
 				end),
 				holder("Right", Vector2.new(1, 0), function()
 					return UDim2.fromOffset(rightEnd(), top())
@@ -517,8 +536,12 @@ local function mount(options: MountOptions?): () -> ()
 			then create("ScreenGui")({
 				Name = "VideTopbar",
 				DisplayOrder = resolved.displayOrder or DEFAULT_DISPLAY_ORDER,
-				IgnoreGuiInset = true,
-				ScreenInsets = Enum.ScreenInsets.None,
+				--* TopbarInset is measured from the device's safe area, topbar strip included, which on a phone with a
+				--* notch or round corners starts inside the screen (62 px in and 20 px down on an iPhone 17 Pro held
+				--* sideways, measured in the device emulator); with None the icons sat that far off Roblox's buttons.
+				--! Not with IgnoreGuiInset: the two set each other. DeviceSafeInsets turns it on; CoreUISafeInsets
+				--! turns it off and drops the strip, and setting it after CoreUISafeInsets makes this DeviceSafeInsets.
+				ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets,
 				ResetOnSpawn = false,
 				ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 				Enabled = enabled,
@@ -531,6 +554,7 @@ local function mount(options: MountOptions?): () -> ()
 				Visible = enabled,
 				provider,
 			})
+		localize.useAutoLocalize(root)
 		root.Parent = target
 		Vide.cleanup(root)
 		rootInstance(root)

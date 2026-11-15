@@ -1,5 +1,6 @@
---* TopbarPlus's playground demo (StarterGui.TestGUIs.EXAMPLES in its place) rebuilt with VideTopbar. Its sideways
---* menu and dropdowns are Roblox-style menus here, and Mute and Premium share a group.
+--* TopbarPlus's playground demo (StarterGui.TestGUIs.EXAMPLES in its place) rebuilt with VideTopbar. Its dropdowns
+--* are Roblox-style menus here, its sideways menu a row menu, and its Premium icon is Roblox Plus, which replaced
+--* Premium; it shares a group with Mute.
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,15 +13,8 @@ local VideTopbar = require(ReplicatedStorage.Packages.VideTopbar)
 local images = {
 	example = Content.fromAssetId(16086868244),
 	exampleSelected = Content.fromAssetId(16086868447),
-	captures = Content.fromAssetId(132131908946422),
-	leaderboard = Content.fromAssetId(77963268913241),
-	emotes = Content.fromAssetId(85873312676193),
-	inventory = Content.fromAssetId(88192794455898),
-	respawn = Content.fromAssetId(79448871490237),
-	shop = Content.fromAssetId(4882429582),
 	mute = Content.fromAssetId(7248002480),
 	unmute = Content.fromAssetId(7248002631),
-	premium = Content.fromAssetId(6071020687),
 }
 
 local function withCommas(value: number): string
@@ -37,14 +31,18 @@ VideTopbar.mount()
 local exampleSelected = Vide.source(false)
 local menuNotices = Vide.source(1)
 local inventoryNotices = Vide.source(0)
+local capturing = Vide.source(false)
+local leaderboardOpen = Vide.source(false)
+local inventoryOpen = Vide.source(false)
 local shopOpen = Vide.source(false)
 local shopSeen = Vide.source(false)
 local muted = Vide.source(false)
-local premiumNotices = Vide.source(1)
+local plusNotices = Vide.source(if Players.LocalPlayer.HasRobloxSubscription then 0 else 1)
 local points = Vide.source(math.random(1, 1000))
 local fillers = Vide.source(0)
 local profileOpen = Vide.source(false)
 local vipDisabled = Vide.source(true)
+local liked = Vide.source(false)
 
 local function say(text: string): () -> ()
 	return function()
@@ -120,28 +118,41 @@ Vide.root(function()
 		onActivated = function()
 			menuNotices(0)
 		end,
+		--* The rows wear the glyphs of Roblox's own ⋯ menu (its integrations' CommonIcon off/on pairs, which Builder
+		--* Icons' migration maps to one glyph and its Filled variant), filled while what they open is open.
 		menu = function()
-			VideTopbar.Icon({ order = 1, image = images.captures, label = "Captures", onActivated = say("captures") })
+			VideTopbar.Icon({ order = 1, icon = "photo-camera", label = "Captures", selected = capturing })
+			VideTopbar.Icon({ order = 2, icon = "trophy", label = "Leaderboard", selected = leaderboardOpen })
+			--* Not in the TopbarPlus demo: a row with a list of its own, which opens in place of this one.
 			VideTopbar.Icon({
-				order = 2,
-				image = images.leaderboard,
-				label = "Leaderboard",
-				onActivated = say("leaderboard"),
+				order = 3,
+				icon = "square-face-waving-hand",
+				label = "Emotes",
+				menu = function()
+					for index, name in { "Wave", "Cheer", "Dance" } do
+						VideTopbar.Icon({ order = index, label = name, onActivated = say(name) })
+					end
+				end,
 			})
-			VideTopbar.Icon({ order = 3, image = images.emotes, label = "Emotes", onActivated = say("emotes") })
 			VideTopbar.Icon({
 				order = 4,
-				image = images.inventory,
+				icon = "backpack",
 				label = "Inventory",
 				badge = inventoryNotices,
+				selected = inventoryOpen,
 				onActivated = function()
 					inventoryNotices(0)
 				end,
 			})
-			VideTopbar.Icon({ order = 5, image = images.respawn, label = "Respawn", onActivated = say("respawn") })
+			VideTopbar.Icon({
+				order = 5,
+				icon = "person-standing-arrow-reverse",
+				label = "Respawn",
+				onActivated = say("respawn"),
+			})
 			VideTopbar.Icon({
 				order = 6,
-				image = images.shop,
+				icon = "shopping-cart",
 				label = "Shop",
 				--* Not in the TopbarPlus demo: a text badge, like its setNoticeLabel, until the shop is first opened.
 				badge = function()
@@ -165,6 +176,27 @@ Vide.root(function()
 		isDisabled = vipDisabled,
 		onActivated = say("vip"),
 	})
+	--* TopbarPlus's sideways menu, as a row menu: its icons slide out of the star, which turns into an x.
+	VideTopbar.Icon({
+		order = 5,
+		icon = "star",
+		tooltip = "Favourites",
+		menuStyle = "Row",
+		menu = function()
+			VideTopbar.Icon({ order = 1, icon = "heart", tooltip = "Like", selected = liked })
+			VideTopbar.Icon({ order = 2, icon = "trophy", tooltip = "Badges", onActivated = say("badges") })
+			VideTopbar.Divider({ order = 3 })
+			VideTopbar.Icon({
+				order = 4,
+				icon = "crown",
+				tooltip = "Leaders",
+				menu = function()
+					VideTopbar.Icon({ order = 1, label = "Today", onActivated = say("today") })
+					VideTopbar.Icon({ order = 2, label = "All time", onActivated = say("all time") })
+				end,
+			})
+		end,
+	})
 
 	VideTopbar.Group({ side = "Right", order = 1 }, function()
 		VideTopbar.Icon({
@@ -181,12 +213,12 @@ Vide.root(function()
 		VideTopbar.Divider({ order = 2 })
 		VideTopbar.Icon({
 			order = 3,
-			image = images.premium,
-			badge = premiumNotices,
-			tooltip = "Buy Premium",
+			icon = "roblox-plus",
+			badge = plusNotices,
+			tooltip = "Get Roblox Plus",
 			onActivated = function()
-				premiumNotices(0)
-				MarketplaceService:PromptPremiumPurchase(Players.LocalPlayer)
+				plusNotices(0)
+				MarketplaceService:PromptRobloxSubscriptionPurchase(Players.LocalPlayer)
 			end,
 		})
 		--* Not in the TopbarPlus demo: a menu behind Roblox's own hamburger glyph, which turns into an x while open.

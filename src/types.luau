@@ -5,6 +5,9 @@ type Value<T> = VideFoundation.Value<T>
 
 export type Side = "Left" | "Center" | "Right"
 
+--- How an icon's `menu` opens: a list under it, or a row of icons beside it on the topbar's pill.
+export type MenuStyle = "List" | "Row"
+
 --- A key, or up to two modifiers and then a key: `{ Enum.KeyCode.LeftControl, Enum.KeyCode.M }`.
 --! Shift as a modifier never fires where the game offers shift lock: Roblox's MouseLockSwitchAction takes Shift before
 --! the Input Action System sees it (tried at InputContext priority 100000 too). Use Ctrl or Alt.
@@ -24,7 +27,8 @@ export type IconProps = {
 	imageRatio: Value<number?>?,
 	label: Value<string?>?,
 	--- Drawn inside the icon before its glyph and label, like TopbarPlus's `addInstance(instance, "Left")`. Called once
-	--- inside the topbar, so Foundation's hooks work in it.
+	--- inside the topbar, so Foundation's hooks work in it. Its AutoLocalize is left as it is, while the topbar's own
+	--- text is translated like the game's other UI.
 	leading: (() -> GuiObject)?,
 	--- Drawn inside the icon after its label, like `addInstance(instance, "Right")`.
 	trailing: (() -> GuiObject)?,
@@ -51,13 +55,18 @@ export type IconProps = {
 	--- Ignores presses and shortcuts without looking disabled, like TopbarPlus's `lock`.
 	isLocked: Value<boolean?>?,
 	onActivated: (() -> ())?,
-	--- Makes the icon open a list under it, like Roblox's ⋯ menu. Icons added inside this function become its rows.
+	--- Makes the icon open a list under it, like Roblox's ⋯ menu. Icons added inside this function become its rows; a
+	--- row with a `menu` of its own opens it in place of the list, with a row back at the top. While it is open the
+	--- icon's glyph turns into an x, as Roblox's menu button does; a label stays as it is.
 	menu: (() -> ())?,
+	--- "Row" opens `menu` sideways instead: its icons slide out of this one onto a pill, as Roblox's Unibar was built
+	--- to collapse and expand. It stays open until the icon is pressed again. Read once; not inside a group.
+	menuStyle: MenuStyle?,
 	--- Whether the menu is open, to open or close it from code like TopbarPlus's `select` and `deselect`. The icon
 	--- writes it too.
 	menuOpen: Vide.Source<boolean>?,
-	--- Whether a click anywhere else closes the menu, as Roblox's does. True by default, like TopbarPlus's
-	--- `setCloseOnOutsideClick`.
+	--- Whether a click anywhere else closes the menu, as Roblox's does. True by default for a list, like TopbarPlus's
+	--- `setCloseOnOutsideClick`, and false for a row, like TopbarPlus's sideways menus.
 	closeOnOutsideClick: Value<boolean?>?,
 }
 

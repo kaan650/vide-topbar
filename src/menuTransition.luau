@@ -27,4 +27,7 @@ local function useMenuTransition(isOpen: () -> boolean): (() -> number, VideRipp
 	return transition, spring
 end
 
-return useMenuTransition
+return {
+	SPRING = SPRING,
+	useMenuTransition = useMenuTransition,
+}

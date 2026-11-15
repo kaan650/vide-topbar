@@ -6,8 +6,9 @@ local stage = require("./stage")
 local FILLER_ICONS = { "gear", "bell", "star", "flag", "crown", "music-note", "house", "magnifying-glass" }
 
 return stage.topbar({
-	summary = "Menus open Roblox's ⋯ list under their icon. A labelled icon narrows into an x, and `rows` adds rows "
-		.. "until the list cuts its last one in half to show it scrolls.",
+	summary = "Menus open Roblox's ⋯ list under their icon. A glyph turns into an x and a label stays, and `rows` "
+		.. "adds rows until the list cuts its last one in half to show it scrolls. Settings opens its own list in "
+		.. "place, with a row back at the top, and Graphics one more.",
 	controls = {
 		open = false,
 		closeOnOutsideClick = true,
@@ -16,6 +17,7 @@ return stage.topbar({
 	build = function(controls)
 		local rows: () -> number = controls.rows
 		local shopSelected = Vide.source(false)
+		local lowQuality = Vide.source(false)
 		local extraRows = Vide.derive(function()
 			local list = {}
 			for index = 7, rows() do
@@ -32,6 +34,36 @@ return stage.topbar({
 			menuOpen = stage.mirror(controls.open),
 			closeOnOutsideClick = controls.closeOnOutsideClick,
 			menu = function()
+				VideTopbar.Icon({
+					order = 0,
+					icon = "gear",
+					label = "Settings",
+					menu = function()
+						VideTopbar.Icon({
+							order = 1,
+							icon = "star",
+							label = "Graphics",
+							menu = function()
+								VideTopbar.Icon({ order = 1, label = "Low", selected = lowQuality })
+								VideTopbar.Icon({ order = 2, label = "High", onActivated = stage.action("high") })
+								VideTopbar.Icon({ order = 3, label = "Ultra", isDisabled = true })
+							end,
+						})
+						VideTopbar.Icon({
+							order = 2,
+							icon = "music-note",
+							label = "Audio",
+							badge = 2,
+							onActivated = stage.action("audio"),
+						})
+						VideTopbar.Icon({
+							order = 3,
+							icon = "flag",
+							label = "Language",
+							onActivated = stage.action("language"),
+						})
+					end,
+				})
 				VideTopbar.Icon({
 					order = 1,
 					icon = "shopping-cart",

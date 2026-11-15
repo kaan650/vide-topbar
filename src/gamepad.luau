@@ -12,6 +12,8 @@ export type OpenMenu = {
 	close: () -> (),
 	--- The icon the menu belongs to, where selection returns when the menu closes.
 	trigger: GuiObject,
+	--- Leaves a list opened in place of another, which B does before closing; false when there is none.
+	back: (() -> boolean)?,
 }
 
 --- Every open menu's list frame, so B can close the one holding the selection.
@@ -132,7 +134,9 @@ local function useGamepad(getRoot: () -> Instance?, highlightKey: Enum.KeyCode?)
 			return
 		end
 		local menu = if selected then menuHolding(selected) else nil
-		if menu then
+		if menu and menu.back and menu.back() then
+			return
+		elseif menu then
 			menu.close()
 			GuiService.SelectedObject = menu.trigger
 		else

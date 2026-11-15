@@ -17,7 +17,8 @@ end
 
 return stage.topbar({
 	summary = "Add icons until a side runs out of room: what doesn't fit moves, furthest from the edge first, into a "
-		.. "⋯ menu at that side's edge. Its rows press the hidden icons, so a hidden menu opens under the ⋯.",
+		.. "⋯ menu at that side's edge. Its rows press the hidden icons, so a hidden menu opens under the ⋯, and a "
+		.. "hidden row menu lists its icons in place.",
 	screen = "Phone 390",
 	controls = {
 		left = UILabs.Slider(5, 0, 16, 1),
@@ -37,10 +38,15 @@ return stage.topbar({
 				tooltip = `Left {index}`,
 				badge = if index % 3 == 0 then index else nil,
 				onActivated = stage.action(`left {index}`),
+				menuStyle = if index % 4 == 3 then "Row" else nil,
 				menu = if index % 4 == 1
 					then function()
 						VideTopbar.Icon({ order = 1, icon = "gear", label = `Left {index} A` })
 						VideTopbar.Icon({ order = 2, icon = "bell", label = `Left {index} B` })
+					end
+					elseif index % 4 == 3 then function()
+						VideTopbar.Icon({ order = 1, icon = "heart", label = `Left {index} A` })
+						VideTopbar.Icon({ order = 2, icon = "star", label = `Left {index} B` })
 					end
 					else nil,
 			})

@@ -19,14 +19,16 @@ export type GroupEntry = { kind: "Group", props: types.GroupProps, items: Contai
 export type DividerEntry = { kind: "Divider", props: types.DividerProps }
 export type Entry = IconEntry | GroupEntry | DividerEntry
 
---- Where icons go: the topbar itself, a group's pill, or a menu's list.
+--- Where icons go: the topbar itself, a group's pill, or a menu's list or row.
 export type Container = {
 	kind: ContainerKind,
+	--- How a menu opens; nil for the topbar and groups.
+	style: types.MenuStyle?,
 	entries: Vide.Source<{ [number]: Entry }>,
 }
 
-local function newContainer(kind: ContainerKind): Container
-	return { kind = kind, entries = Vide.source({} :: { [number]: Entry }) }
+local function newContainer(kind: ContainerKind, style: types.MenuStyle?): Container
+	return { kind = kind, style = style, entries = Vide.source({} :: { [number]: Entry }) }
 end
 
 local topbar = newContainer("Topbar")

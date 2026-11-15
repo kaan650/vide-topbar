@@ -13,7 +13,8 @@ export type PlanInput = {
 	--- Where the left holder starts and the right holder ends, in screen pixels.
 	leftStart: number,
 	rightEnd: number,
-	screenWidth: number,
+	--- Where the centre icons are centred.
+	screenMiddle: number,
 	gap: number,
 	overflowWidth: number,
 }
@@ -82,7 +83,7 @@ local function plan(input: PlanInput): { Left: Hidden, Right: Hidden }
 	local rightRoom: number
 	local centerWidth = need(center, gap)
 	if centerWidth > 0 then
-		local centerLeft = input.screenWidth / 2 - centerWidth / 2
+		local centerLeft = input.screenMiddle - centerWidth / 2
 		leftRoom = centerLeft - gap - input.leftStart
 		rightRoom = input.rightEnd - (centerLeft + centerWidth + gap)
 	else
