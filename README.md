@@ -80,8 +80,10 @@ end)
 - Icons added inside `menu` become its rows. A row with a `menu` of its own opens it in place of the list.
   `menuStyle = "Row"` opens the menu sideways instead, as icons on the topbar's pill.
 - Images are `Content`: `image = Content.fromAssetId(123)`.
-- `mount` returns a function that removes the topbar. It takes `displayOrder`, `enabled`, `colorMode` and
-  `gamepadHighlightKey` (DPadUp by default).
+- `mount` returns a function that removes the topbar. It takes `displayOrder`, `enabled`, `colorMode`,
+  `gamepadHighlightKey` (DPadUp by default) and `avoid`.
+- `avoid` takes GUI objects that other code puts on the topbar, such as another library's icons. Icons keep to the
+  widest stretch of the bar they leave free, and what no longer fits moves into the overflow menu.
 - Shift doesn't work as a shortcut modifier in games with shift lock, since Roblox takes it first. Use Ctrl or Alt.
 
 Every prop is documented in `src/types.luau`, and shows in your editor's autocomplete.

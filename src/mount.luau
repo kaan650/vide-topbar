@@ -8,6 +8,7 @@ local RowMenuView = require("./RowMenuView")
 local Vide = require("./Packages/Vide")
 local VideFoundation = require("./Packages/VideFoundation")
 local create = require("./Utility/create")
+local useFreeGap = require("./avoid")
 local gamepad = require("./gamepad")
 local layers = require("./layers")
 local localize = require("./localize")
@@ -32,6 +33,10 @@ export type MountOptions = {
 	--- The gamepad button that moves the selection onto the topbar, DPadUp by default. `false` leaves the topbar to the
 	--- gamepad's virtual cursor.
 	gamepadHighlightKey: (Enum.KeyCode | false)?,
+	--- GUI objects that other code puts on the topbar, such as another library's icons. The icons keep to the widest
+	--- stretch of the bar that the shown ones leave free, and those that no longer fit move into the overflow menu.
+	--- Objects below the topbar, like an open dropdown, don't count.
+	avoid: Value<{ GuiObject }>?,
 }
 
 local DEFAULT_DISPLAY_ORDER = 10
@@ -261,7 +266,12 @@ local function GamepadHint(
 end
 
 --- The three holders. Without an inset (a story) the free area is the whole target.
-local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlightKey: Enum.KeyCode?): { GuiObject }
+local function Holders(
+	inset: (() -> Rect)?,
+	getRoot: () -> Instance?,
+	highlightKey: Enum.KeyCode?,
+	avoid: Value<{ GuiObject }>
+): { GuiObject }
 	local tokens = VideFoundation.Hooks.useTokens()
 
 	--* Spacing from Roblox's TopBar/Constants.lua: buttons Gap.Medium from the top, Padding.Small after Roblox's
@@ -287,7 +297,7 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 	local menus = layer("Menus", 5)
 	local tooltips = layer("Tooltips", 10)
 
-	local _, screenSize = trackAbsolute(menus)
+	local layerPosition, screenSize = trackAbsolute(menus)
 	local function screenWidth(): number
 		return screenSize().X
 	end
@@ -311,19 +321,36 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 		GamepadHint(tooltips, highlightKey, gamepad.useGamepad(getRoot, highlightKey), getRoot, isReady)
 	end
 
+	local gapStart, gapEnd = useFreeGap(avoid, layerPosition, function()
+		return top(), top() + tokens().Size.Size_1100
+	end, function()
+		if inset then
+			local area = inset()
+			return area.Min.X, area.Max.X
+		end
+		return 0, screenWidth()
+	end)
+
+	--- Where the left holder starts: Padding.Small after Roblox's buttons, or after the start of the gap `avoid` leaves.
 	local function leftStart(): number
-		return (if inset then inset().Min.X else 0) + tokens().Padding.Small
+		local start = (if inset then inset().Min.X else 0) + tokens().Padding.Small
+		local avoided = gapStart()
+		return if avoided then math.max(start, avoided + tokens().Padding.Small) else start
 	end
 
-	--- Where the right holder ends: Gap.Large from the free area's edge, or, while Roblox's health bar shows,
-	--- Padding.Small before it, as Roblox spaces its own right-hand Unibar from it. The bar ends Gap.Large from the
-	--- screen's edge, wherever the free area ends.
+	--- Where the right holder ends: Gap.Large from the free area's edge, or Padding.Small before Roblox's health bar
+	--- while it shows, as Roblox spaces its own right-hand Unibar from it, or before the end of the gap `avoid`
+	--- leaves. The bar ends Gap.Large from the screen's edge, wherever the free area ends.
 	local function rightEnd(): number
 		local right = (if inset then inset().Max.X else screenWidth()) - tokens().Gap.Large
 		local healthBar = if healthBarWidth then healthBarWidth() else 0
 		if healthBar > 0 then
 			local healthBarLeft = screenWidth() - tokens().Gap.Large - healthBar
 			right = math.min(right, healthBarLeft - tokens().Padding.Small)
+		end
+		local avoided = gapEnd()
+		if avoided then
+			right = math.min(right, avoided - tokens().Padding.Small)
 		end
 		return right
 	end
@@ -365,7 +392,7 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 		return list
 	end
 
-	local hidden = Vide.derive(function()
+	local hidden = Vide.derive(function(): overflow.Plan
 		return overflow.plan({
 			left = items("Left"),
 			center = items("Center"),
@@ -383,16 +410,39 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 		return if side == "Left" then plan.Left elseif side == "Right" then plan.Right else {}
 	end
 
+	local overflowButtons = {
+		Left = Vide.source(nil :: GuiObject?),
+		Right = Vide.source(nil :: GuiObject?),
+	}
+
+	--- The ⋯ holding `side`'s hidden entries: the side's own, or the one both sides share.
+	local function overflowButtonFor(side: Side): GuiObject?
+		local host = hidden().shared or side
+		local button: (() -> GuiObject?)? = if host == "Left"
+			then overflowButtons.Left
+			elseif host == "Right" then overflowButtons.Right
+			else nil
+		return if button then button() else nil
+	end
+
 	--- The icon a side shows while some of its entries don't fit, holding them as rows of its menu, like the ⋯ menu
 	--- Roblox moves Unibar items into. It sits at the side's screen edge.
 	local function OverflowIcon(
-		side: Side,
+		side: "Left" | "Right",
 		button: Vide.Source<GuiObject?>,
 		sideOf: () -> Side
 	): () -> (GuiObject | { GuiObject })?
 		local rows = registry.newContainer("Menu")
 		Vide.effect(function()
-			rows.entries(overflow.rowsFor(hiddenOn(side), entries[side]()))
+			local plan = hidden()
+			local sides: { overflow.HiddenSide } = {}
+			if plan.shared == side then
+				table.insert(sides, { hidden = plan.Left, entries = entries.Left() })
+				table.insert(sides, { hidden = plan.Right, entries = entries.Right() })
+			elseif plan.shared == nil then
+				table.insert(sides, { hidden = hiddenOn(side), entries = entries[side]() })
+			end
+			rows.entries(overflow.rowsFor(sides))
 		end)
 		local overflowEntry: registry.IconEntry = {
 			kind = "Icon",
@@ -405,7 +455,9 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 			isOverflow = true,
 		}
 		return Vide.show(function()
-			return if next(hiddenOn(side)) then true else nil
+			local plan = hidden()
+			local shown = if plan.shared then plan.shared == side else next(hiddenOn(side)) ~= nil
+			return if shown then true else nil
 		end, function()
 			local view = IconView(overflowEntry, "Standalone", sideOf)
 			button(view)
@@ -420,8 +472,6 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 		local function sideOf(): Side
 			return side
 		end
-		local overflowButton = Vide.source(nil :: GuiObject?)
-		local getOverflowButton: () -> GuiObject? = overflowButton
 
 		return VideFoundation.View({
 			tag = "auto-x row align-y-center gap-small",
@@ -437,7 +487,7 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 						return hiddenOn(side)[id] == true
 					end
 					local view = EntryView(entry(), sideOf, function()
-						return if isHidden() then getOverflowButton() else nil
+						return if isHidden() then overflowButtonFor(side) else nil
 					end)
 					if view == nil then
 						return nil
@@ -461,7 +511,10 @@ local function Holders(inset: (() -> Rect)?, getRoot: () -> Instance?, highlight
 					end)
 					return view
 				end),
-				if side ~= "Center" then OverflowIcon(side, overflowButton, sideOf) else nil,
+				if side == "Left"
+					then OverflowIcon("Left", overflowButtons.Left, sideOf)
+					elseif side == "Right" then OverflowIcon("Right", overflowButtons.Right, sideOf)
+					else nil,
 			},
 		})
 	end
@@ -527,7 +580,7 @@ local function mount(options: MountOptions?): () -> ()
 			preferences = if isLive then livePreferences() else nil,
 			children = function()
 				return shortcuts.inputContext(inputContext, function()
-					return Holders(inset, getRoot, highlightKey)
+					return Holders(inset, getRoot, highlightKey, resolved.avoid or {})
 				end)
 			end,
 		})

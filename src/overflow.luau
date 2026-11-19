@@ -6,6 +6,16 @@ export type Item = { id: number, order: number, width: number }
 
 export type Hidden = { [number]: true }
 
+export type Plan = {
+	Left: Hidden,
+	Right: Hidden,
+	--- Set when both sides overflow into one ⋯, on this side, as the bar has no room for one on each.
+	shared: ("Left" | "Right")?,
+}
+
+--- A side's hidden entries, for the rows of the ⋯ that holds them.
+export type HiddenSide = { hidden: Hidden, entries: { [number]: registry.Entry } }
+
 export type PlanInput = {
 	left: { Item },
 	center: { Item },
@@ -66,10 +76,19 @@ local function fit(items: { Item }, room: number, gap: number, overflowWidth: nu
 	return hidden
 end
 
+local function hideAll(items: { Item }): Hidden
+	local hidden: Hidden = {}
+	for _, item in items do
+		hidden[item.id] = true
+	end
+	return hidden
+end
+
 --- Which entries each side hides in its overflow menu, as Roblox's Unibar moves what doesn't fit into its ⋯ menu. A
 --- side reaches up to the centre icons when there are any; otherwise a side needing less than half the bar keeps all
---- it needs and the other gets the rest.
-local function plan(input: PlanInput): { Left: Hidden, Right: Hidden }
+--- it needs and the other gets the rest. When both sides overflow and either has no room for its ⋯, every icon of
+--- both moves into one ⋯ on the side with more room.
+local function plan(input: PlanInput): Plan
 	local gap = input.gap
 	local left = table.clone(input.left)
 	table.sort(left, byOrder)
@@ -101,23 +120,20 @@ local function plan(input: PlanInput): { Left: Hidden, Right: Hidden }
 		end
 	end
 
-	return {
-		Left = fit(left, leftRoom, gap, input.overflowWidth),
-		Right = fit(right, rightRoom, gap, input.overflowWidth),
-	}
+	local leftHidden = fit(left, leftRoom, gap, input.overflowWidth)
+	local rightHidden = fit(right, rightRoom, gap, input.overflowWidth)
+	if next(leftHidden) and next(rightHidden) and math.min(leftRoom, rightRoom) < input.overflowWidth then
+		return {
+			Left = hideAll(left),
+			Right = hideAll(right),
+			shared = if leftRoom >= rightRoom then "Left" else "Right",
+		}
+	end
+	return { Left = leftHidden, Right = rightHidden }
 end
 
---- The overflow menu's rows: each hidden icon, and each icon of a hidden group, in bar order.
-local function rowsFor(hidden: Hidden, entries: { [number]: registry.Entry }): { [number]: registry.Entry }
-	local hiddenItems: { Item } = {}
-	for id in hidden do
-		local entry = entries[id]
-		if entry then
-			table.insert(hiddenItems, { id = id, order = orderOf(entry), width = 0 })
-		end
-	end
-	table.sort(hiddenItems, byOrder)
-
+--- The overflow menu's rows: each hidden icon, and each icon of a hidden group, in bar order, one side after another.
+local function rowsFor(sides: { HiddenSide }): { [number]: registry.Entry }
 	local rows: { [number]: registry.Entry } = {}
 	local index = 0
 	local function add(id: number, icon: registry.IconEntry)
@@ -125,23 +141,35 @@ local function rowsFor(hidden: Hidden, entries: { [number]: registry.Entry }): {
 		rows[id] = { kind = "Icon", props = icon.props, menu = icon.menu, overflowOf = icon, rowOrder = index }
 	end
 
-	for _, item in hiddenItems do
-		local entry = entries[item.id]
-		if entry.kind == "Icon" then
-			add(item.id, entry)
-		elseif entry.kind == "Group" then
-			local members: { Item } = {}
-			local groupEntries = entry.items.entries()
-			for id, member in groupEntries do
-				if member.kind == "Icon" then
-					table.insert(members, { id = id, order = orderOf(member), width = 0 })
-				end
+	for _, side in sides do
+		local entries = side.entries
+		local hiddenItems: { Item } = {}
+		for id in side.hidden do
+			local entry = entries[id]
+			if entry then
+				table.insert(hiddenItems, { id = id, order = orderOf(entry), width = 0 })
 			end
-			table.sort(members, byOrder)
-			for _, member in members do
-				local icon = groupEntries[member.id]
-				if icon.kind == "Icon" then
-					add(member.id, icon)
+		end
+		table.sort(hiddenItems, byOrder)
+
+		for _, item in hiddenItems do
+			local entry = entries[item.id]
+			if entry.kind == "Icon" then
+				add(item.id, entry)
+			elseif entry.kind == "Group" then
+				local members: { Item } = {}
+				local groupEntries = entry.items.entries()
+				for id, member in groupEntries do
+					if member.kind == "Icon" then
+						table.insert(members, { id = id, order = orderOf(member), width = 0 })
+					end
+				end
+				table.sort(members, byOrder)
+				for _, member in members do
+					local icon = groupEntries[member.id]
+					if icon.kind == "Icon" then
+						add(member.id, icon)
+					end
 				end
 			end
 		end

@@ -4,16 +4,7 @@ local VideTopbar = require("@game/ReplicatedStorage/Packages/VideTopbar")
 local stage = require("./stage")
 
 local ICONS = { "gear", "bell", "star", "flag", "crown", "music-note", "house", "trophy" }
-
-local function upTo(count: () -> number): () -> { number }
-	return Vide.derive(function()
-		local list = {}
-		for index = 1, count() do
-			list[index] = index
-		end
-		return list
-	end)
-end
+local upTo = stage.upTo
 
 return stage.topbar({
 	summary = "Add icons until a side runs out of room: what doesn't fit moves, furthest from the edge first, into a "

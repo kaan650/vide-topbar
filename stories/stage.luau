@@ -44,11 +44,13 @@ local function colorModeControl()
 end
 
 --- A story with the topbar mounted along the top of a stand-in game view; `build` adds the icons. Its `screen` control
---- narrows the view to a device's width, starting at `screen`.
+--- narrows the view to a device's width, starting at `screen`. `options` adds to `mount`'s options, and can put
+--- things in the game view first.
 local function topbar(spec: {
 	summary: string,
 	controls: Controls?,
 	screen: string?,
+	options: ((controls: Controls, scene: GuiObject) -> VideTopbar.MountOptions)?,
 	build: (controls: Controls) -> (),
 })
 	return {
@@ -78,7 +80,12 @@ local function topbar(spec: {
 				scene,
 			})
 			Vide.cleanup(backdrop)
-			Vide.cleanup(VideTopbar.mount({ target = scene, colorMode = controls.colorMode }))
+			local options: VideTopbar.MountOptions = if spec.options
+				then table.clone(spec.options(controls, scene))
+				else {}
+			options.target = scene
+			options.colorMode = controls.colorMode
+			Vide.cleanup(VideTopbar.mount(options))
 			spec.build(controls)
 			return backdrop
 		end,
@@ -156,6 +163,17 @@ local function mirror(control: () -> boolean): Vide.Source<boolean>
 	return value
 end
 
+--- 1 to `count()`, for adding as many icons as a slider says.
+local function upTo(count: () -> number): () -> { number }
+	return Vide.derive(function()
+		local list = {}
+		for index = 1, count() do
+			list[index] = index
+		end
+		return list
+	end)
+end
+
 --- A callback that prints that it ran, for icons and rows in stories.
 local function action(name: string): () -> ()
 	return function()
@@ -170,5 +188,6 @@ return {
 	row = row,
 	sample = sample,
 	mirror = mirror,
+	upTo = upTo,
 	action = action,
 }
