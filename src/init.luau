@@ -5,6 +5,7 @@ local mount = require("@self/mount")
 local types = require("@self/types")
 
 export type IconProps = types.IconProps
+export type InputOptions = types.InputOptions
 export type GroupProps = types.GroupProps
 export type DividerProps = types.DividerProps
 export type Shortcut = types.Shortcut
