@@ -15,7 +15,7 @@ Topbar icons for [Vide](https://github.com/centau/vide), drawn like Roblox's own
 
 ```toml
 [dependencies]
-VideTopbar = "kaan650/vide-topbar@0.1.0"
+VideTopbar = "kaan650/vide-topbar@0.2.0"
 ```
 
 ## Usage
