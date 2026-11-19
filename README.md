@@ -6,8 +6,9 @@ Topbar icons for [Vide](https://github.com/centau/vide), drawn like Roblox's own
 - Icons with Builder Icons glyphs or images, labels, badges and tooltips
 - Keyboard shortcuts through the Input Action System, shown as keycaps in tooltips
 - Menus that open as a list under an icon or slide out sideways, with lists inside lists
+- Text fields that slide out of an icon, for codes or search
 - Groups that share one pill, with dividers
-- Icons that don't fit move into an overflow menu
+- Icons that don't fit move into an overflow menu, and keep clear of other UI on the topbar
 - Gamepad support, phone safe areas, room for the health bar, and the game's own translations
 
 ## Install
@@ -79,6 +80,8 @@ end)
 - `selected` makes an icon a toggle that flips the source you pass; `menuOpen` opens and closes a menu from code.
 - Icons added inside `menu` become its rows. A row with a `menu` of its own opens it in place of the list.
   `menuStyle = "Row"` opens the menu sideways instead, as icons on the topbar's pill.
+- `input = { onSubmit = function(text) ... end }` gives an icon a text field that slides out of it like a row menu;
+  Enter submits it. As a menu row, or in the overflow menu, it opens a page with the field.
 - Images are `Content`: `image = Content.fromAssetId(123)`.
 - `mount` returns a function that removes the topbar. It takes `displayOrder`, `enabled`, `colorMode`,
   `gamepadHighlightKey` (DPadUp by default) and `avoid`.

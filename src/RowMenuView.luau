@@ -3,6 +3,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local DividerView = require("./DividerView")
 local IconView = require("./IconView")
+local InputFieldView = require("./InputFieldView")
 local Vide = require("./Packages/Vide")
 local VideFoundation = require("./Packages/VideFoundation")
 local gamepad = require("./gamepad")
@@ -18,7 +19,8 @@ local useBackplate = require("./Utility/useBackplate")
 --* out from behind the pinned one, clipped rather than faded.
 
 --- An icon whose `menu` opens sideways: the icon is the first cell of a pill, and its menu's icons slide out of it
---- onto the rest. The right side's holder grows leftwards, so the icon stays at the screen's edge on every side.
+--- onto the rest. The right side's holder grows leftwards, so the icon stays at the screen's edge on every side. An
+--- icon with `input` slides its text field out the same way.
 local function RowMenuView(
 	entry: registry.IconEntry,
 	side: () -> types.Side,
@@ -67,6 +69,14 @@ local function RowMenuView(
 		return stripWidth() * transition()
 	end
 
+	local input = props.input
+	--* The field is Size_800 tall in the 44 px pill, 6 px clear above and below; its outer end keeps the same 6 px
+	--* with the pill's end padding, and its inner end a little more from the icon's circle.
+	local function fieldPadding(isInner: boolean): UDim
+		local padding = tokens().Padding
+		return UDim.new(0, if isInner then padding.XSmall else padding.XXSmall)
+	end
+
 	local strip = VideFoundation.View({
 		tag = "auto-x row align-y-center",
 		AnchorPoint = function()
@@ -80,15 +90,35 @@ local function RowMenuView(
 		onAbsoluteSizeChanged = function(view: GuiObject)
 			stripWidth(view.AbsoluteSize.X)
 		end,
-		children = Vide.indexes(registry.entriesOf(items), function(item: () -> registry.Entry): GuiObject?
-			local child = item()
-			if child.kind == "Icon" then
-				return IconView(child, "Cell", side, overflowAnchor)
-			elseif child.kind == "Divider" then
-				return DividerView(child.props)
-			end
-			return nil
-		end),
+		padding = if input
+			then {
+				left = function()
+					return fieldPadding(not isRight())
+				end,
+				right = function()
+					return fieldPadding(isRight())
+				end,
+			}
+			else nil,
+		children = if input
+			then InputFieldView.InputFieldView({
+				icon = props,
+				size = VideFoundation.Enums.InputSize.Small,
+				width = function()
+					return UDim.new(0, InputFieldView.widthOf(input))
+				end,
+				isOpen = open,
+				close = close,
+			})
+			else Vide.indexes(registry.entriesOf(items), function(item: () -> registry.Entry): GuiObject?
+				local child = item()
+				if child.kind == "Icon" then
+					return IconView(child, "Cell", side, overflowAnchor)
+				elseif child.kind == "Divider" then
+					return DividerView(child.props)
+				end
+				return nil
+			end),
 	})
 
 	--- The strip's window, from the icon's edge outwards; closed, it is empty and keeps the icons out of reach.

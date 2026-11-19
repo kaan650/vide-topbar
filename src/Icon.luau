@@ -18,6 +18,14 @@ local function Icon(props: types.IconProps)
 		registry.within(menuRows, menu)
 		rows = menuRows
 	end
+	--* A field opens and closes like a row menu with nothing in it, so the icon, the overflow menu and a list's pages
+	--* treat it as one; RowMenuView and MenuView draw the field in place of the icons.
+	if props.input then
+		assert(menu == nil, "VideTopbar: an icon takes `menu` or `input`, not both")
+		assert(container.kind ~= "Group", "VideTopbar: an icon with `input` can't be inside a group")
+		assert(container.style ~= "Row", "VideTopbar: an icon with `input` can't be inside a row menu")
+		rows = registry.newContainer("Menu", "Row")
+	end
 	registry.add(container, { kind = "Icon", props = props, menu = rows })
 end
 

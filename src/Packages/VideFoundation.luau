@@ -5,5 +5,7 @@ export type Value<T> = VideFoundation.Value<T>
 export type ColorMode = VideFoundation.ColorMode
 export type ControlState = VideFoundation.ControlState
 export type Device = VideFoundation.Device
+export type InputSize = VideFoundation.InputSize
+export type TextInputRef = VideFoundation.TextInputRef
 
 return VideFoundation

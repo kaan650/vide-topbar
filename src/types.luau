@@ -64,6 +64,19 @@ export type IconProps = {
 	menuOpen: Vide.Source<boolean>?,
 	--- Whether a click anywhere else closes the menu, as Roblox's does. True by default for a list and false for a row.
 	closeOnOutsideClick: Value<boolean?>?,
+	--- Makes the icon open a text field: on the topbar it slides out of the icon like a row menu, and as a menu row it
+	--- opens in place of the list. Enter submits it. `menuOpen` and `closeOnOutsideClick` work as for a row menu.
+	--- Read once; not with `menu`, inside a group or inside a row menu.
+	input: InputOptions?,
+}
+
+export type InputOptions = {
+	--- Called with the text when Enter is pressed. The field then empties and closes.
+	onSubmit: (text: string) -> (),
+	--- Shown while the field is empty; the icon's label, or else its tooltip, by default.
+	placeholder: Value<string?>?,
+	--- How wide the field is on the topbar, 200 by default.
+	width: Value<number?>?,
 }
 
 export type GroupProps = {

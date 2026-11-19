@@ -4,6 +4,7 @@ local UserInputService = game:GetService("UserInputService")
 local Vide = require("./Packages/Vide")
 local VideFoundation = require("./Packages/VideFoundation")
 local BadgeView = require("./BadgeView")
+local InputFieldView = require("./InputFieldView")
 local VideRipple = require("./Packages/VideRipple")
 local create = require("./Utility/create")
 local disabled = require("./Utility/disabled")
@@ -506,8 +507,16 @@ local function MenuView(props: MenuProps)
 			return if entry and entry.menu then entry.menu else props.rows
 		end
 
+		--- Rows a page has besides its menu's: the back row, and an input icon's field.
+		local function extraRows(parent: registry.IconEntry?): number
+			if parent == nil then
+				return 0
+			end
+			return 1 + (if parent.props.input then 1 else 0)
+		end
+
 		local function pageHeight(depth: number): number
-			return fullHeight(rowCount(rowsAt(depth)) + (if depth > 0 then 1 else 0))
+			return fullHeight(rowCount(rowsAt(depth)) + extraRows(getDrawn()[depth]))
 		end
 
 		--* The list's height moves between two pages' as it slides from one to the other.
@@ -606,8 +615,47 @@ local function MenuView(props: MenuProps)
 				backViews[parent] = back
 			end
 
+			--* An input icon's page holds its field under the back row, a row tall and padded like one, fading with
+			--* the list as the rows do.
+			local field: GuiObject? = nil
+			if parent and parent.props.input then
+				field = create("CanvasGroup")({
+					Name = "Field",
+					BackgroundTransparency = 1,
+					Size = function()
+						return UDim2.new(1, 0, 0, tokens().Size.Size_1400)
+					end,
+					GroupTransparency = function()
+						return 1 - transition()
+					end,
+					LayoutOrder = BACK_ORDER + 1,
+					VideFoundation.View({
+						tag = "size-full row align-y-center",
+						padding = {
+							left = function()
+								return UDim.new(0, tokens().Padding.Small)
+							end,
+							right = function()
+								return UDim.new(0, tokens().Padding.Small)
+							end,
+						},
+						children = InputFieldView.InputFieldView({
+							icon = parent.props,
+							size = VideFoundation.Enums.InputSize.Medium,
+							width = function()
+								return UDim.new(1, 0)
+							end,
+							isOpen = function()
+								return props.isOpen() and index() == #getPath()
+							end,
+							close = props.close,
+						}),
+					}),
+				})
+			end
+
 			local function count(): number
-				return rowCount(rows) + (if parent then 1 else 0)
+				return rowCount(rows) + extraRows(parent)
 			end
 
 			return create("ScrollingFrame")({
@@ -635,6 +683,7 @@ local function MenuView(props: MenuProps)
 					SortOrder = Enum.SortOrder.LayoutOrder,
 				}),
 				back,
+				field,
 				Vide.indexes(registry.entriesOf(rows), function(entry: () -> registry.Entry): GuiObject?
 					local row = entry()
 					if row.kind ~= "Icon" then
